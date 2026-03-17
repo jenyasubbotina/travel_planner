@@ -1,0 +1,57 @@
+CREATE TABLE tripEventEntity (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    remoteId TEXT UNIQUE,
+    tripId INTEGER NOT NULL,
+    dayIndex INTEGER NOT NULL,
+    time TEXT NOT NULL,
+    title TEXT NOT NULL,
+    subtitle TEXT NOT NULL,
+    description TEXT,
+    duration TEXT,
+    cost REAL DEFAULT 0.0,
+    actualCost REAL DEFAULT 0.0,
+    status TEXT DEFAULT 'NONE',
+    category TEXT DEFAULT 'OTHER',
+    latitude REAL DEFAULT 0.0,
+    longitude REAL DEFAULT 0.0,
+    address TEXT,
+    linksJson TEXT DEFAULT '[]',
+    commentsJson TEXT DEFAULT '[]',
+    filesJson TEXT DEFAULT '[]',
+    participantIdsJson TEXT DEFAULT '[]'
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS event_remote_id_unique ON tripEventEntity(remoteId);
+
+getEventsForTrip:
+SELECT * FROM tripEventEntity WHERE tripId = ? ORDER BY dayIndex, time ASC;
+
+getEventById:
+SELECT * FROM tripEventEntity WHERE id = ?;
+
+getEventIdByRemoteId:
+SELECT id FROM tripEventEntity WHERE remoteId = ?;
+
+updateEventFull:
+UPDATE tripEventEntity
+SET tripId = ?, dayIndex = ?, time = ?, title = ?, subtitle = ?, description = ?, duration = ?, cost = ?, actualCost = ?, status = ?, category = ?, latitude = ?, longitude = ?, address = ?, linksJson = ?, commentsJson = ?, filesJson = ?, participantIdsJson = ?
+WHERE id = ?;
+
+insertEvent:
+INSERT INTO tripEventEntity(tripId, dayIndex, time, title, subtitle, description, duration, cost, actualCost, status, category, latitude, longitude, address, linksJson, commentsJson, filesJson, participantIdsJson)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+insertOrReplaceEvent:
+INSERT OR REPLACE INTO tripEventEntity(remoteId, tripId, dayIndex, time, title, subtitle, description, duration, cost, actualCost, status, category, latitude, longitude, address, linksJson, commentsJson, filesJson, participantIdsJson)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+updateEvent:
+UPDATE tripEventEntity
+SET time = ?, title = ?, subtitle = ?, description = ?, cost = ?, actualCost = ?, category = ?, address = ?, linksJson = ?, commentsJson = ?, filesJson = ?, participantIdsJson = ?
+WHERE id = ?;
+
+deleteEvent:
+DELETE FROM tripEventEntity WHERE id = ?;
+
+deleteEventByRemoteId:
+DELETE FROM tripEventEntity WHERE remoteId = ?;

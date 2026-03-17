@@ -1,0 +1,131 @@
+CREATE TABLE tripExpenseEntity (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    remoteId TEXT UNIQUE,
+    tripId INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    amount REAL NOT NULL,
+    category TEXT NOT NULL,
+    payerName TEXT NOT NULL,
+    date INTEGER NOT NULL,
+    splitDescription TEXT NOT NULL,
+    currency TEXT NOT NULL,
+    creatorUserId TEXT NOT NULL,
+    pendingUpdateJson TEXT,
+    imageUrl TEXT
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS expense_remote_id_unique ON tripExpenseEntity(remoteId);
+
+CREATE TABLE expenseSplitEntity (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    expenseId INTEGER NOT NULL,
+    participantId INTEGER NOT NULL,
+    amount REAL NOT NULL,
+    isPaid INTEGER NOT NULL DEFAULT 0, -- 0 = false, 1 = true
+    FOREIGN KEY(expenseId) REFERENCES tripExpenseEntity(id) ON DELETE CASCADE
+);
+
+CREATE TABLE expenseHistoryEntity (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    expenseId INTEGER NOT NULL,
+    actionTitle TEXT NOT NULL, -- e.g. "created"
+    actionSubtitle TEXT NOT NULL, -- e.g. "you yesterday"
+    timestamp INTEGER NOT NULL,
+    FOREIGN KEY(expenseId) REFERENCES tripExpenseEntity(id) ON DELETE CASCADE
+);
+
+-- EXPENSE QUERIES --
+
+getExpensesForTrip:
+SELECT * FROM tripExpenseEntity WHERE tripId = ? ORDER BY date DESC;
+
+getExpenseById:
+SELECT * FROM tripExpenseEntity WHERE id = ?;
+
+getExpenseByRemoteId:
+SELECT * FROM tripExpenseEntity WHERE remoteId = ? LIMIT 1;
+
+-- Get just the Local ID using the Remote (Server) ID
+getExpenseIdByRemoteId:
+SELECT id FROM tripExpenseEntity WHERE remoteId = ?;
+
+insertOrReplaceExpense:
+INSERT OR REPLACE INTO tripExpenseEntity(remoteId, tripId, title, amount, category, payerName, date, splitDescription, currency, creatorUserId, pendingUpdateJson, imageUrl)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+updateExpenseDetails:
+UPDATE tripExpenseEntity
+SET title = ?, amount = ?, category = ?, payerName = ?, date = ?, splitDescription = ?, currency = ?, creatorUserId = ?, pendingUpdateJson = ?, imageUrl = ?
+WHERE id = ?;
+
+getExpenseTotal:
+SELECT SUM(amount) FROM tripExpenseEntity WHERE tripId = ?;
+
+insertExpense:
+INSERT INTO tripExpenseEntity(tripId, title, amount, currency, category, payerName, date, splitDescription, creatorUserId, pendingUpdateJson)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+updateExpenseFull:
+UPDATE tripExpenseEntity
+SET title = ?, amount = ?, category = ?, payerName = ?, date = ?
+WHERE id = ?;
+
+updateExpenseTripId:
+UPDATE tripExpenseEntity SET tripId = ? WHERE tripId = ?;
+
+deleteExpense:
+DELETE FROM tripExpenseEntity WHERE id = ?;
+
+deleteExpenseByRemoteId:
+DELETE FROM tripExpenseEntity WHERE remoteId = ?;
+
+lastInsertRowId:
+SELECT last_insert_rowid();
+
+-- SPLIT QUERIES --
+
+getSplitsForExpense:
+SELECT * FROM expenseSplitEntity WHERE expenseId = ?;
+
+getSplitsForTrip:
+SELECT S.*
+FROM expenseSplitEntity AS S
+JOIN tripExpenseEntity AS Exp ON S.expenseId = Exp.id
+WHERE Exp.tripId = :tripId;
+
+insertSplit:
+INSERT INTO expenseSplitEntity(expenseId, participantId, amount, isPaid)
+VALUES (?, ?, ?, ?);
+
+updateSplitPaidStatus:
+UPDATE expenseSplitEntity SET isPaid = ? WHERE id = ?;
+
+deleteSplitsForExpense:
+DELETE FROM expenseSplitEntity WHERE expenseId = ?;
+
+-- HISTORY QUERIES --
+
+getHistoryForExpense:
+SELECT * FROM expenseHistoryEntity WHERE expenseId = ? ORDER BY timestamp DESC;
+
+insertHistory:
+INSERT INTO expenseHistoryEntity(expenseId, actionTitle, actionSubtitle, timestamp)
+VALUES (?, ?, ?, ?);
+
+-- COMPLEX / JOINED QUERIES --
+
+getExpensesForParticipant:
+SELECT DISTINCT T.*
+FROM tripExpenseEntity T
+LEFT JOIN expenseSplitEntity S ON T.id = S.expenseId
+WHERE T.tripId = :tripId
+AND (T.payerName = :userName OR S.participantId = :userId)
+ORDER BY T.date DESC;
+
+updateTripSpentAmount:
+UPDATE tripEntity
+SET spentAmount = COALESCE((SELECT SUM(amount) FROM tripExpenseEntity WHERE tripId = :tripId AND category != 'PAYMENT'), 0.0)
+WHERE id = :tripId;
+
+getParticipantById:
+SELECT * FROM tripParticipantEntity WHERE id = ?;

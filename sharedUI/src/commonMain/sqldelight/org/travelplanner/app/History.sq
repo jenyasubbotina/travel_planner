@@ -1,0 +1,19 @@
+CREATE TABLE HistoryLogEntity (
+    id TEXT NOT NULL PRIMARY KEY,
+    tripId INTEGER NOT NULL,
+    userId TEXT NOT NULL,
+    actionType TEXT NOT NULL,
+    entityType TEXT NOT NULL,
+    entityId TEXT NOT NULL,
+    details TEXT NOT NULL,
+    timestamp INTEGER NOT NULL
+);
+
+insertLog:
+INSERT OR REPLACE INTO HistoryLogEntity(id, tripId, userId, actionType, entityType, entityId, details, timestamp)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+
+getLogsForTrip:
+SELECT * FROM HistoryLogEntity
+WHERE tripId = ?
+ORDER BY timestamp DESC;

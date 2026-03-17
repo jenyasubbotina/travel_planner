@@ -1,0 +1,42 @@
+CREATE TABLE tripParticipantEntity (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tripId INTEGER NOT NULL,
+    userId TEXT, -- Stores the KStore/Server User ID
+    name TEXT NOT NULL,
+    email TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'VIEWER',
+    avatarColor1 TEXT NOT NULL,
+    avatarColor2 TEXT NOT NULL
+);
+
+insertParticipant:
+INSERT INTO tripParticipantEntity(tripId, userId, name, email, role, avatarColor1, avatarColor2)
+VALUES (?, ?, ?, ?, ?, ?, ?);
+
+getParticipantsForTrip:
+SELECT * FROM tripParticipantEntity WHERE tripId = ?;
+
+getParticipantByUserId:
+SELECT * FROM tripParticipantEntity WHERE tripId = ? AND userId = ? LIMIT 1;
+
+getParticipantById:
+SELECT * FROM tripParticipantEntity WHERE id = ?;
+
+updateParticipantRole:
+UPDATE tripParticipantEntity SET role = ? WHERE tripId = ? AND userId = ?;
+
+updateParticipantTripId:
+UPDATE tripParticipantEntity SET tripId = ? WHERE tripId = ?;
+
+updateTripParticipantCount:
+UPDATE tripEntity
+SET participantCount = COALESCE((SELECT COUNT(*) FROM tripParticipantEntity WHERE tripId = :tripId AND role != 'LEFT'), 1)
+WHERE id = :tripId;
+
+updateParticipantDetails:
+UPDATE tripParticipantEntity
+SET name = ?, email = ?, role = ?
+WHERE tripId = ? AND userId = ?;
+
+lastInsertRowId:
+SELECT last_insert_rowid();

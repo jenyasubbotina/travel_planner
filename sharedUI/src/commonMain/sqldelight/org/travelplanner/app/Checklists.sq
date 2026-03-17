@@ -1,0 +1,18 @@
+CREATE TABLE tripChecklistEntity (
+    id TEXT NOT NULL PRIMARY KEY,
+    tripId INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    isGroup INTEGER NOT NULL DEFAULT 0,
+    ownerUserId TEXT NOT NULL,
+    completedByJson TEXT NOT NULL DEFAULT '[]'
+);
+
+getChecklistForTrip:
+SELECT * FROM tripChecklistEntity WHERE tripId = ?;
+
+insertOrReplaceChecklistItem:
+INSERT OR REPLACE INTO tripChecklistEntity(id, tripId, title, isGroup, ownerUserId, completedByJson)
+VALUES (?, ?, ?, ?, ?, ?);
+
+deleteChecklistItem:
+DELETE FROM tripChecklistEntity WHERE id = ?;
