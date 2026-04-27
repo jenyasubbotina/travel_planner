@@ -15,7 +15,6 @@ import kotlinx.serialization.json.Json
 import org.travelplanner.app.core.BackendApiException
 import org.travelplanner.app.core.GlobalNotifier
 import org.travelplanner.app.core.ReactiveScreenModel
-import org.travelplanner.app.core.TripEvent
 import org.travelplanner.app.core.UserSession
 import org.travelplanner.app.core.VersionConflictException
 import org.travelplanner.app.core.toEpochMillis
@@ -30,7 +29,6 @@ import org.travelplanner.app.domain.Participant
 import org.travelplanner.app.domain.PendingUser
 import org.travelplanner.app.domain.TripMediaItem
 import org.travelplanner.app.features.tripDetails.more.checklist.data.ChecklistRepository
-import org.travelplanner.app.features.tripDetails.route.detailed.data.EventFileDto
 
 class MoreTabScreenModel(
     private val tripId: String,

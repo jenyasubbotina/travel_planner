@@ -1,17 +1,14 @@
 package org.travelplanner.app.features.tripList
 
 import cafe.adriel.voyager.core.model.screenModelScope
-import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.travelplanner.app.core.BackendApiException
 import org.travelplanner.app.core.ReactiveScreenModel
-import org.travelplanner.app.core.TripEvent
 import org.travelplanner.app.core.UserSession
 import org.travelplanner.app.core.VersionConflictException
 import org.travelplanner.app.core.toEpochMillis
