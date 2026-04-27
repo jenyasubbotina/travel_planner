@@ -5,7 +5,7 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class HistoryLogDto(
     val id: String,
-    val tripId: Long,
+    val tripId: String,
     val userId: String,
     val actionType: String,
     val entityType: String,

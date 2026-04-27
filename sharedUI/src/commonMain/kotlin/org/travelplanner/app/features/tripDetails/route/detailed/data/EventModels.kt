@@ -26,7 +26,7 @@ data class EventFileDto(
 @Serializable
 data class EventDto(
     val id: String,
-    val tripId: Long,
+    val tripId: String,
     val dayIndex: Int,
     val time: String,
     val title: String,

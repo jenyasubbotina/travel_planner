@@ -9,4 +9,5 @@ data class TripMediaItem(
     val type: MediaType,
     val date: Long,
     val category: String,
+    val s3Key: String? = null,
 )

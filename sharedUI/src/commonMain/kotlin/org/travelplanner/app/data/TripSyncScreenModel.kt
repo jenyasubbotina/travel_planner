@@ -12,7 +12,7 @@ import org.travelplanner.app.features.tripDetails.more.checklist.data.ChecklistR
 enum class SyncState { SYNCING, UP_TO_DATE, ERROR }
 
 class TripDetailsScreenModel(
-    private val tripId: Long,
+    private val tripId: String,
     private val participantRepo: ParticipantRepository,
     private val eventRepo: EventRepository,
     private val expenseRepo: ExpenseRepository,
@@ -40,6 +40,8 @@ class TripDetailsScreenModel(
             tripRepo.getTripById(tripId).collect { trip ->
                 if (trip == null) {
                     sendEffect(TripDetailsEffect.KickUser)
+                } else {
+                    updateState { copy(trip = trip) }
                 }
             }
         }

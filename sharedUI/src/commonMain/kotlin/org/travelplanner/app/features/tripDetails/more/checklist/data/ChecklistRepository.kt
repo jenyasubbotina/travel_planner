@@ -8,9 +8,10 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.Json
 import org.travelplanner.app.TripChecklistEntity
-import org.travelplanner.app.core.ChecklistItemDto
-import org.travelplanner.app.core.CreateChecklistItemRequest
+import org.travelplanner.app.core.BackendFeatureFlags
+import org.travelplanner.app.core.ChecklistItemResponse
 import org.travelplanner.app.core.TripApiService
+import org.travelplanner.app.core.V2CreateChecklistItemRequest
 import org.travelplanner.app.db.MyDatabase
 import org.travelplanner.app.domain.ChecklistItem
 import org.travelplanner.app.domain.toDomain
@@ -22,13 +23,14 @@ class ChecklistRepository(
 ) {
     private val queries = db.checklistsQueries
 
-    private fun getChecklistEntityFlow(tripId: Long): Flow<List<TripChecklistEntity>> =
+    private fun getChecklistEntityFlow(tripId: String): Flow<List<TripChecklistEntity>> =
         queries.getChecklistForTrip(tripId).asFlow().mapToList(Dispatchers.IO)
 
-    fun getChecklistFlow(tripId: Long): Flow<List<ChecklistItem>> =
+    fun getChecklistFlow(tripId: String): Flow<List<ChecklistItem>> =
         getChecklistEntityFlow(tripId).map { list -> list.map { it.toDomain(json) } }
 
-    suspend fun syncChecklist(tripId: Long) {
+    suspend fun syncChecklist(tripId: String) {
+        if (!BackendFeatureFlags.CHECKLIST_ENABLED) return
         try {
             val remoteList = api.getChecklist(tripId)
             db.transaction {
@@ -44,7 +46,7 @@ class ChecklistRepository(
         }
     }
 
-    fun saveLocally(dto: ChecklistItemDto) {
+    fun saveLocally(dto: ChecklistItemResponse) {
         queries.insertOrReplaceChecklistItem(
             id = dto.id,
             tripId = dto.tripId,
@@ -59,29 +61,22 @@ class ChecklistRepository(
         queries.deleteChecklistItem(itemId)
     }
 
-    suspend fun addItem(
-        tripId: Long,
-        title: String,
-        isGroup: Boolean,
-    ) {
-        val req = CreateChecklistItemRequest(title, isGroup)
-        val created = api.addChecklistItem(tripId, req)
+    suspend fun addItem(tripId: String, title: String, isGroup: Boolean) {
+        if (!BackendFeatureFlags.CHECKLIST_ENABLED) return
+        val req = V2CreateChecklistItemRequest(title, isGroup)
+        val created = api.addChecklistItem(tripId, req) ?: return
         saveLocally(created)
     }
 
-    suspend fun deleteItem(
-        tripId: Long,
-        itemId: String,
-    ) {
+    suspend fun deleteItem(tripId: String, itemId: String) {
+        if (!BackendFeatureFlags.CHECKLIST_ENABLED) return
         api.deleteChecklistItem(tripId, itemId)
         deleteLocally(itemId)
     }
 
-    suspend fun toggleItem(
-        tripId: Long,
-        itemId: String,
-    ) {
-        val updated = api.toggleChecklistItem(tripId, itemId)
+    suspend fun toggleItem(tripId: String, itemId: String) {
+        if (!BackendFeatureFlags.CHECKLIST_ENABLED) return
+        val updated = api.toggleChecklistItem(tripId, itemId) ?: return
         saveLocally(updated)
     }
 }

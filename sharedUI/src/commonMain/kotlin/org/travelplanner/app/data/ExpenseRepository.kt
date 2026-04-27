@@ -11,15 +11,18 @@ import kotlinx.serialization.json.Json
 import org.travelplanner.app.ExpenseHistoryEntity
 import org.travelplanner.app.ExpenseSplitEntity
 import org.travelplanner.app.TripExpenseEntity
-import org.travelplanner.app.core.CreateExpenseRequest
-import org.travelplanner.app.core.ExpenseDto
-import org.travelplanner.app.core.SplitDto
+import org.travelplanner.app.core.BackendFeatureFlags
+import org.travelplanner.app.core.ExpenseResponse
 import org.travelplanner.app.core.TripApiService
+import org.travelplanner.app.core.V2CreateExpenseRequest
+import org.travelplanner.app.core.V2ExpenseSplitRequest
+import org.travelplanner.app.core.V2ExpensePendingUpdateResponse
+import org.travelplanner.app.core.V2MergeExpenseRequest
+import org.travelplanner.app.core.V2UpdateExpenseRequest
+import org.travelplanner.app.core.toMoneyString
 import org.travelplanner.app.db.MyDatabase
 import org.travelplanner.app.domain.Expense
 import org.travelplanner.app.domain.toDomain
-import org.travelplanner.app.features.tripDetails.history.ConflictException
-import kotlin.time.Clock.System
 
 class ExpenseRepository(
     private val db: MyDatabase,
@@ -29,25 +32,21 @@ class ExpenseRepository(
 ) {
     private val queries = db.expensesQueries
 
-    fun resolveUrl(path: String?): String? = api.resolveUrl(path)
-
     val CATEGORY_PAYMENT = "PAYMENT"
 
-    private fun getExpensesEntityFlow(tripId: Long): Flow<List<TripExpenseEntity>> =
+    private fun getExpensesEntityFlow(tripId: String): Flow<List<TripExpenseEntity>> =
         queries.getExpensesForTrip(tripId).asFlow().mapToList(Dispatchers.IO)
 
-    private fun getSplitsEntityFlow(tripId: Long): Flow<List<ExpenseSplitEntity>> =
+    private fun getSplitsEntityFlow(tripId: String): Flow<List<ExpenseSplitEntity>> =
         queries.getSplitsForTrip(tripId).asFlow().mapToList(Dispatchers.IO)
 
     private fun getExpenseByIdEntity(id: Long): Flow<TripExpenseEntity?> =
-        queries
-            .getExpenseById(id)
-            .asFlow()
-            .mapToOneOrNull(Dispatchers.IO)
+        queries.getExpenseById(id).asFlow().mapToOneOrNull(Dispatchers.IO)
 
-    fun getExpensesFlow(tripId: Long): Flow<List<Expense>> = getExpensesEntityFlow(tripId).map { list -> list.map { it.toDomain() } }
+    fun getExpensesFlow(tripId: String): Flow<List<Expense>> =
+        getExpensesEntityFlow(tripId).map { list -> list.map { it.toDomain() } }
 
-    fun getSplitsFlow(tripId: Long): Flow<List<org.travelplanner.app.domain.ExpenseSplit>> =
+    fun getSplitsFlow(tripId: String): Flow<List<org.travelplanner.app.domain.ExpenseSplit>> =
         getSplitsEntityFlow(tripId).map { list -> list.map { it.toDomain() } }
 
     fun getExpenseById(id: Long): Flow<Expense?> = getExpenseByIdEntity(id).map { it?.toDomain() }
@@ -59,84 +58,110 @@ class ExpenseRepository(
         queries.deleteExpense(id)
     }
 
-    fun upsertExpenseFromDto(
-        tripId: Long,
-        dto: ExpenseDto,
+    fun upsertExpenseFromResponse(
+        tripId: String,
+        response: ExpenseResponse,
+        imageUrlOverride: String? = null,
     ) {
         db.transaction {
-            val payerParticipant =
-                participantRepo.getOrCreateParticipantLocal(tripId, dto.payerUserId)
-            val existingLocalId = queries.getExpenseIdByRemoteId(dto.id).executeAsOneOrNull()
+            val payerParticipant = participantRepo.getOrCreateParticipantLocal(tripId, response.payerUserId)
+            val existingLocalId = queries.getExpenseIdByRemoteId(response.id).executeAsOneOrNull()
 
-            val pendingJson = dto.pendingUpdate?.let { json.encodeToString(it) }
+            val tripCurrency = db.tripsQueries.getTripById(tripId).executeAsOneOrNull()?.currency ?: "USD"
 
-            val tripCurrency =
-                db.tripsQueries
-                    .getTripById(tripId)
-                    .executeAsOneOrNull()
-                    ?.currency ?: "¥"
+            val resolvedImageUrl = imageUrlOverride
+                ?: db.attachmentsQueries
+                    .getAttachmentsForExpense(response.id)
+                    .executeAsList()
+                    .firstOrNull()
+                    ?.s3Key
+                ?: queries.getExpenseByRemoteId(response.id).executeAsOneOrNull()?.imageUrl
+
+            val pendingUpdateJson = response.pendingUpdate?.let {
+                json.encodeToString(V2ExpensePendingUpdateResponse.serializer(), it)
+            }
 
             val finalLocalId: Long
             if (existingLocalId != null) {
                 queries.updateExpenseDetails(
-                    title = dto.title,
-                    amount = dto.amount,
-                    category = dto.category,
+                    title = response.title,
+                    amount = response.amount,
+                    category = response.category,
                     payerName = payerParticipant.name,
-                    date = dto.date,
-                    splitDescription = "Итого",
+                    date = response.expenseDate,
+                    splitDescription = "Всего",
                     currency = tripCurrency,
-                    creatorUserId = dto.creatorUserId,
-                    pendingUpdateJson = pendingJson,
+                    creatorUserId = response.createdBy,
+                    pendingUpdateJson = pendingUpdateJson,
+                    imageUrl = resolvedImageUrl,
+                    version = response.version,
+                    splitType = response.splitType,
                     id = existingLocalId,
-                    imageUrl = dto.imageUrl,
                 )
                 finalLocalId = existingLocalId
             } else {
                 queries.insertOrReplaceExpense(
-                    remoteId = dto.id,
+                    remoteId = response.id,
                     tripId = tripId,
-                    title = dto.title,
-                    amount = dto.amount,
-                    category = dto.category,
+                    title = response.title,
+                    amount = response.amount,
+                    category = response.category,
                     payerName = payerParticipant.name,
-                    date = dto.date,
-                    splitDescription = "Итого",
+                    date = response.expenseDate,
+                    splitDescription = "Всего",
                     currency = tripCurrency,
-                    creatorUserId = dto.creatorUserId,
-                    pendingUpdateJson = pendingJson,
-                    imageUrl = dto.imageUrl,
+                    creatorUserId = response.createdBy,
+                    pendingUpdateJson = pendingUpdateJson,
+                    imageUrl = resolvedImageUrl,
+                    version = response.version,
+                    splitType = response.splitType,
                 )
-                finalLocalId = queries.getExpenseIdByRemoteId(dto.id).executeAsOne()
+                finalLocalId = queries.getExpenseIdByRemoteId(response.id).executeAsOne()
             }
 
             queries.deleteSplitsForExpense(finalLocalId)
-            dto.splits.forEach { splitDto ->
-                val participant =
-                    participantRepo.getOrCreateParticipantLocal(tripId, splitDto.userId)
+            response.splits.forEach { splitResponse ->
+                val participant = participantRepo.getOrCreateParticipantLocal(tripId, splitResponse.participantUserId)
                 queries.insertSplit(
                     expenseId = finalLocalId,
-                    participantId = participant.id,
-                    amount = splitDto.amount,
+                    participantId = participant.userId,
+                    amount = splitResponse.amountInExpenseCurrency,
                     isPaid = 0,
                 )
             }
 
-            queries.updateTripSpentAmount(tripId)
+            val allExpenses = queries.getExpensesForTrip(tripId).executeAsList()
+            val total = allExpenses
+                .filter { it.category != "PAYMENT" }
+                .sumOf { it.amount.toDoubleOrNull() ?: 0.0 }
+            queries.updateTripSpentAmount(total.toMoneyString(), tripId)
         }
     }
 
-    suspend fun resolveConflictOnline(
-        tripId: Long,
+    suspend fun resolveConflictOnline(tripId: String, expenseRemoteId: String, accept: Boolean) {
+        if (!BackendFeatureFlags.EXPENSE_CONFLICT_ENABLED) return
+        val response = api.resolveConflict(tripId, expenseRemoteId, accept) ?: return
+        upsertExpenseFromResponse(tripId, response)
+    }
+
+    suspend fun mergeConflictOnline(
+        tripId: String,
         expenseRemoteId: String,
-        accept: Boolean,
+        merged: V2MergeExpenseRequest,
     ) {
-        val updatedDto = api.resolveConflict(tripId, expenseRemoteId, accept)
-        upsertExpenseFromDto(tripId, updatedDto)
+        if (!BackendFeatureFlags.EXPENSE_CONFLICT_ENABLED) return
+        val response = api.resolveConflictMerge(tripId, expenseRemoteId, merged) ?: return
+        upsertExpenseFromResponse(tripId, response)
+    }
+
+    suspend fun revertConflictOnline(tripId: String, expenseRemoteId: String) {
+        if (!BackendFeatureFlags.EXPENSE_CONFLICT_ENABLED) return
+        val response = api.resolveConflictRevert(tripId, expenseRemoteId) ?: return
+        upsertExpenseFromResponse(tripId, response)
     }
 
     suspend fun addExpenseOnline(
-        tripId: Long,
+        tripId: String,
         title: String,
         amount: Double,
         category: String,
@@ -144,37 +169,70 @@ class ExpenseRepository(
         splits: Map<Long, Double>,
         photoBytes: ByteArray? = null,
     ) {
-        val uploadedImageUrl = photoBytes?.let { api.uploadPhoto(it) }
-
         val payerParticipant = queries.getParticipantById(payerLocalId).executeAsOne()
-        val globalPayerId =
-            payerParticipant.userId ?: payerParticipant.name
+        val globalPayerId = payerParticipant.userId
 
-        val globalSplits =
-            splits.map { (localId, splitAmount) ->
-                val participant = queries.getParticipantById(localId).executeAsOne()
-                val globalUserId = participant.userId ?: participant.name
+        val tripCurrency = db.tripsQueries.getTripById(tripId).executeAsOneOrNull()?.currency ?: "USD"
 
-                SplitDto(userId = globalUserId, amount = splitAmount)
-            }
+        val globalSplits = splits.map { (localId, splitAmount) ->
+            val participant = queries.getParticipantById(localId).executeAsOne()
+            V2ExpenseSplitRequest(participantUserId = participant.userId, value = splitAmount.toMoneyString())
+        }
 
-        val request =
-            CreateExpenseRequest(
-                title = title,
-                amount = amount,
-                category = category,
-                payerUserId = globalPayerId,
-                date = System.now().toEpochMilliseconds(),
-                splits = globalSplits,
-                imageUrl = uploadedImageUrl,
+        val request = V2CreateExpenseRequest(
+            title = title,
+            amount = amount.toMoneyString(),
+            currency = tripCurrency,
+            category = category,
+            payerUserId = globalPayerId,
+            expenseDate = run {
+                val now = kotlin.time.Clock.System.now()
+                kotlinx.datetime.Instant.fromEpochMilliseconds(now.toEpochMilliseconds()).toString().substringBefore('T')
+            },
+            splits = globalSplits,
+        )
+
+        val createdResponse = api.createExpense(tripId, request)
+
+        val uploadedS3Key = uploadExpenseReceipt(tripId, createdResponse.id, photoBytes)
+
+        upsertExpenseFromResponse(tripId, createdResponse, imageUrlOverride = uploadedS3Key)
+    }
+
+    private suspend fun uploadExpenseReceipt(
+        tripId: String,
+        expenseRemoteId: String,
+        photoBytes: ByteArray?,
+    ): String? {
+        if (photoBytes == null) return null
+        return try {
+            val attachment = api.uploadExpenseFile(
+                tripId,
+                expenseRemoteId,
+                photoBytes,
+                "expense_photo.jpg",
+                "image/jpeg",
             )
-
-        val createdDto = api.addExpense(tripId, request)
-        upsertExpenseFromDto(tripId, createdDto)
+            db.attachmentsQueries.insertOrReplaceAttachment(
+                attachment.id,
+                attachment.tripId,
+                attachment.expenseId,
+                attachment.pointId,
+                attachment.uploadedBy,
+                attachment.fileName,
+                attachment.fileSize,
+                attachment.mimeType,
+                attachment.s3Key,
+                attachment.createdAt,
+            )
+            attachment.s3Key
+        } catch (_: Exception) {
+            null
+        }
     }
 
     suspend fun updateExpenseOnline(
-        tripId: Long,
+        tripId: String,
         expenseLocalId: Long,
         title: String,
         amount: Double,
@@ -188,57 +246,49 @@ class ExpenseRepository(
         val existingExpense = queries.getExpenseById(expenseLocalId).executeAsOne()
         val remoteId = existingExpense.remoteId ?: return
 
-        val finalImageUrl =
-            if (photoBytes != null) {
-                api.uploadPhoto(photoBytes)
-            } else {
-                existingImageUrl
-            }
-
         val payerParticipant = queries.getParticipantById(payerLocalId).executeAsOne()
-        val globalPayerId = payerParticipant.userId ?: payerParticipant.name
+        val globalPayerId = payerParticipant.userId
 
-        val globalSplits =
-            splits.map { (localId, splitAmount) ->
-                val participant = queries.getParticipantById(localId).executeAsOne()
-                val globalUserId = participant.userId ?: participant.name
-                SplitDto(userId = globalUserId, amount = splitAmount)
-            }
-
-        val request =
-            CreateExpenseRequest(
-                title = title,
-                amount = amount,
-                category = category,
-                payerUserId = globalPayerId,
-                date = existingExpense.date,
-                splits = globalSplits,
-                imageUrl = finalImageUrl,
-            )
-
-        val baseHash =
-            (existingExpense.amount.toString() + existingExpense.title + existingExpense.category)
-                .hashCode()
-                .toString()
-
-        try {
-            val updatedDto = api.updateExpense(tripId, remoteId, request, baseHash, force)
-            upsertExpenseFromDto(tripId, updatedDto)
-        } catch (e: ConflictException) {
-            throw e
+        val globalSplits = splits.map { (localId, splitAmount) ->
+            val participant = queries.getParticipantById(localId).executeAsOne()
+            V2ExpenseSplitRequest(participantUserId = participant.userId, value = splitAmount.toMoneyString())
         }
+
+        val request = V2UpdateExpenseRequest(
+            title = title,
+            amount = amount.toMoneyString(),
+            category = category,
+            payerUserId = globalPayerId,
+            expenseDate = existingExpense.date,
+            splits = globalSplits,
+            expectedVersion = existingExpense.version,
+        )
+
+        val updatedResponse = api.updateExpense(tripId, remoteId, request)
+
+        val uploadedS3Key = uploadExpenseReceipt(tripId, remoteId, photoBytes)
+
+        upsertExpenseFromResponse(tripId, updatedResponse, imageUrlOverride = uploadedS3Key)
     }
 
-    suspend fun deleteExpenseOnline(
-        remoteId: String,
-        tripId: Long,
-    ) {
+    fun deleteExpenseByRemoteIdLocal(remoteId: String, tripId: String) {
+        queries.deleteExpenseByRemoteId(remoteId)
+        val allExpenses = queries.getExpensesForTrip(tripId).executeAsList()
+        val total = allExpenses.filter { it.category != "PAYMENT" }.sumOf { it.amount.toDoubleOrNull() ?: 0.0 }
+        queries.updateTripSpentAmount(total.toMoneyString(), tripId)
+    }
+
+    suspend fun deleteExpenseOnline(remoteId: String, tripId: String) {
         api.deleteExpense(tripId, remoteId)
         queries.deleteExpenseByRemoteId(remoteId)
+        // Recompute spent amount
+        val allExpenses = queries.getExpensesForTrip(tripId).executeAsList()
+        val total = allExpenses.filter { it.category != "PAYMENT" }.sumOf { it.amount.toDoubleOrNull() ?: 0.0 }
+        queries.updateTripSpentAmount(total.toMoneyString(), tripId)
     }
 
     suspend fun settleDebt(
-        tripId: Long,
+        tripId: String,
         debtorId: Long,
         creditorId: Long,
         amount: Double,
@@ -247,7 +297,7 @@ class ExpenseRepository(
 
         addExpenseOnline(
             tripId = tripId,
-            title = "Payment to ${creditor.name}",
+            title = "Платёж для ${creditor.name}",
             amount = amount,
             category = "PAYMENT",
             payerLocalId = debtorId,
@@ -255,7 +305,7 @@ class ExpenseRepository(
         )
     }
 
-    suspend fun syncExpenses(tripId: Long) {
+    suspend fun syncExpenses(tripId: String) {
         try {
             val remoteExpenses = api.getExpenses(tripId)
             val remoteIds = remoteExpenses.map { it.id }.toSet()
@@ -269,11 +319,13 @@ class ExpenseRepository(
                     }
                 }
 
-                remoteExpenses.forEach { dto ->
-                    upsertExpenseFromDto(tripId, dto)
+                remoteExpenses.forEach { response ->
+                    upsertExpenseFromResponse(tripId, response)
                 }
 
-                queries.updateTripSpentAmount(tripId)
+                val allExpenses = queries.getExpensesForTrip(tripId).executeAsList()
+                val total = allExpenses.filter { it.category != "PAYMENT" }.sumOf { it.amount.toDoubleOrNull() ?: 0.0 }
+                queries.updateTripSpentAmount(total.toMoneyString(), tripId)
             }
         } catch (e: Exception) {
             println("Expense sync failed: ${e.message}")

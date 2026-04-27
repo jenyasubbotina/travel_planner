@@ -6,17 +6,17 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.Flow
 import org.travelplanner.app.HistoryLogEntity
+import org.travelplanner.app.core.BackendFeatureFlags
 import org.travelplanner.app.core.TripApiService
 import org.travelplanner.app.db.MyDatabase
 
 class HistoryRepository(
     private val db: MyDatabase,
-    private val api: TripApiService
+    private val api: TripApiService,
 ) {
     private val queries = db.historyQueries
 
-    fun getLogsFlow(tripId: Long): Flow<List<HistoryLogEntity>> =
-        queries.getLogsForTrip(tripId).asFlow().mapToList(Dispatchers.IO)
+    fun getLogsFlow(tripId: String): Flow<List<HistoryLogEntity>> = queries.getLogsForTrip(tripId).asFlow().mapToList(Dispatchers.IO)
 
     fun saveLogLocally(dto: HistoryLogDto) {
         queries.insertLog(
@@ -27,11 +27,12 @@ class HistoryRepository(
             entityType = dto.entityType,
             entityId = dto.entityId,
             details = dto.details,
-            timestamp = dto.timestamp
+            timestamp = dto.timestamp,
         )
     }
 
-    suspend fun syncHistory(tripId: Long) {
+    suspend fun syncHistory(tripId: String) {
+        if (!BackendFeatureFlags.HISTORY_ENABLED) return
         try {
             val remoteLogs = api.getTripHistory(tripId)
             db.transaction {
