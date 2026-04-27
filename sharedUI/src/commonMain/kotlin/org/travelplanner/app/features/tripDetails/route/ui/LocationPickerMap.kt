@@ -19,18 +19,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import org.maplibre.compose.camera.CameraPosition
-import org.maplibre.compose.camera.rememberCameraState
-import org.maplibre.compose.expressions.dsl.const
-import org.maplibre.compose.layers.CircleLayer
-import org.maplibre.compose.map.MaplibreMap
-import org.maplibre.compose.sources.GeoJsonData
-import org.maplibre.compose.sources.rememberGeoJsonSource
-import org.maplibre.compose.style.BaseStyle
-import org.maplibre.compose.style.rememberStyleState
-import org.maplibre.compose.util.ClickResult
-import org.maplibre.spatialk.geojson.Position
 import org.travelplanner.app.theme.DSButton
+
+@Composable
+expect fun LocationPickerMapCanvas(
+    initialLatitude: Double?,
+    initialLongitude: Double?,
+    selectedLat: Double,
+    selectedLon: Double,
+    onTap: (lat: Double, lon: Double) -> Unit,
+    modifier: Modifier = Modifier,
+)
 
 @Composable
 fun LocationPickerMap(
@@ -41,60 +40,22 @@ fun LocationPickerMap(
 ) {
     val startLat = initialLatitude ?: 52.52
     val startLon = initialLongitude ?: 13.40
-    val startZoom = if (initialLatitude != null) 14.0 else 4.0
 
-    var selectedPosition by remember {
-        mutableStateOf(Position(startLon, startLat))
-    }
-
-    val cameraState =
-        rememberCameraState(
-            firstPosition =
-                CameraPosition(
-                    target = Position(startLon, startLat),
-                    zoom = startZoom,
-                ),
-        )
+    var selectedLat by remember { mutableStateOf(startLat) }
+    var selectedLon by remember { mutableStateOf(startLon) }
 
     Box(modifier = Modifier.fillMaxSize().background(Color.White)) {
-        MaplibreMap(
-            modifier = Modifier.fillMaxSize(),
-            cameraState = cameraState,
-            styleState = rememberStyleState(),
-            baseStyle = BaseStyle.Uri("https://tiles.openfreemap.org/styles/bright"),
-            onMapClick = { position, screenPoint ->
-                selectedPosition = position
-                ClickResult.Consume
+        LocationPickerMapCanvas(
+            initialLatitude = initialLatitude,
+            initialLongitude = initialLongitude,
+            selectedLat = selectedLat,
+            selectedLon = selectedLon,
+            onTap = { lat, lon ->
+                selectedLat = lat
+                selectedLon = lon
             },
-        ) {
-            val markerSource =
-                rememberGeoJsonSource(
-                    data =
-                        GeoJsonData.JsonString(
-                            """
-                            {
-                                "type": "FeatureCollection", 
-                                "features": [{
-                                    "type": "Feature",
-                                    "geometry": { 
-                                        "type": "Point", 
-                                        "coordinates": [${selectedPosition.longitude}, ${selectedPosition.latitude}] 
-                                    }
-                                }]
-                            }
-                            """.trimIndent(),
-                        ),
-                )
-
-            CircleLayer(
-                id = "picker-marker",
-                source = markerSource,
-                radius = const(12.dp),
-                color = const(Color(0xFFE53935)),
-                strokeColor = const(Color.White),
-                strokeWidth = const(3.dp),
-            )
-        }
+            modifier = Modifier.fillMaxSize(),
+        )
 
         Box(
             modifier =
@@ -121,9 +82,7 @@ fun LocationPickerMap(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                "Выбрано: ${
-                    selectedPosition.latitude.toString().take(7)
-                }, ${selectedPosition.longitude.toString().take(7)}",
+                "Выбрано: ${selectedLat.toString().take(7)}, ${selectedLon.toString().take(7)}",
                 style = MaterialTheme.typography.bodySmall,
                 color = Color.Gray,
             )
@@ -139,9 +98,7 @@ fun LocationPickerMap(
 
                 DSButton(
                     text = "Подтвердить",
-                    onClick = {
-                        onConfirm(selectedPosition.latitude, selectedPosition.longitude)
-                    },
+                    onClick = { onConfirm(selectedLat, selectedLon) },
                     modifier = Modifier.weight(1f),
                 )
             }
