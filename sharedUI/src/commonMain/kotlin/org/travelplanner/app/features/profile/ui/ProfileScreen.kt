@@ -1,4 +1,4 @@
-package org.travelplanner.app.features.tripDetails.more.settings.ui
+package org.travelplanner.app.features.profile.ui
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -8,6 +8,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.Logout
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -25,30 +27,50 @@ import cafe.adriel.voyager.core.model.ScreenModel
 import cafe.adriel.voyager.core.model.screenModelScope
 import cafe.adriel.voyager.core.screen.Screen
 import cafe.adriel.voyager.koin.getScreenModel
+import cafe.adriel.voyager.navigator.LocalNavigator
+import cafe.adriel.voyager.navigator.currentOrThrow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+import org.travelplanner.app.core.AppUser
 import org.travelplanner.app.core.UserSession
+import org.travelplanner.app.features.tripList.TripListScreen
 
-class SettingsScreenModel(
+class ProfileScreenModel(
     private val userSession: UserSession,
 ) : ScreenModel {
     val currentUser =
         userSession.currentUser
             .stateIn(screenModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val availableUsers =
+        userSession.availableUsers
+            .stateIn(screenModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun logout() {
+        screenModelScope.launch { userSession.logout() }
+    }
+
+    fun switchUser(userId: String) {
+        userSession.switchUser(userId)
+    }
 }
 
-class SettingsScreen : Screen {
+class ProfileScreen : Screen {
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     override fun Content() {
-        val screenModel = getScreenModel<SettingsScreenModel>()
+        val screenModel = getScreenModel<ProfileScreenModel>()
+        val navigator = LocalNavigator.currentOrThrow
         val currentUser by screenModel.currentUser.collectAsState()
+        val availableUsers by screenModel.availableUsers.collectAsState()
 
         val userName = currentUser?.name ?: "Ваше Имя"
         val userEmail = currentUser?.email ?: "you@example.com"
+        val otherAccounts = availableUsers.filter { it.id != currentUser?.id }
 
         var isDarkMode by remember { mutableStateOf(false) }
-        var isPushEnabled by remember { mutableStateOf(true) }
+        var isPushEnabled by remember { mutableStateOf(false) }
         var isEmailEnabled by remember { mutableStateOf(true) }
         var isRemindersEnabled by remember { mutableStateOf(false) }
         var isOfflineMode by remember { mutableStateOf(true) }
@@ -57,6 +79,21 @@ class SettingsScreen : Screen {
 
         Scaffold(
             topBar = {
+                TopAppBar(
+                    title = { Text("Профиль") },
+                    navigationIcon = {
+                        IconButton(onClick = { navigator.pop() }) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Назад",
+                            )
+                        }
+                    },
+                    colors =
+                        TopAppBarDefaults.topAppBarColors(
+                            containerColor = Color.Transparent,
+                        ),
+                )
             },
         ) { padding ->
             LazyColumn(
@@ -84,21 +121,14 @@ class SettingsScreen : Screen {
                                     .padding(16.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Box(
-                                modifier =
-                                    Modifier
-                                        .size(64.dp)
-                                        .clip(CircleShape)
-                                        .background(Color(0xFF6366F1)),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Text(
-                                    text = userName.take(1).uppercase(),
-                                    color = Color.White,
-                                    fontSize = 24.sp,
-                                    fontWeight = FontWeight.Medium,
-                                )
-                            }
+                            GradientAvatar(
+                                seed = (currentUser?.id ?: "") + userName,
+                                initials = avatarInitials(userName),
+                                avatarUrl = currentUser?.avatarUrl,
+                                size = 64.dp,
+                                fontSize = 24.sp,
+                                showBorder = false,
+                            )
                             Spacer(modifier = Modifier.width(16.dp))
 
                             Column(modifier = Modifier.weight(1f)) {
@@ -111,9 +141,37 @@ class SettingsScreen : Screen {
                                 Text(userEmail, fontSize = 14.sp, color = Color(0xFF6B7280))
                             }
 
-                            TextButton(onClick = {  }) {
+                            TextButton(onClick = { }) {
                                 Text("Изменить", color = Color(0xFF155DFC), fontSize = 14.sp)
                             }
+                        }
+                    }
+                }
+
+                if (otherAccounts.isNotEmpty()) {
+                    item {
+                        SectionHeader("ПЕРЕКЛЮЧЕНИЕ АККАУНТА")
+                        Spacer(modifier = Modifier.height(8.dp))
+                        CardSettingsGroup {
+                            otherAccounts.forEachIndexed { index, account ->
+                                AccountSwitchRow(
+                                    user = account,
+                                    onClick = {
+                                        screenModel.switchUser(account.id)
+                                        navigator.popUntil { it is TripListScreen }
+                                    },
+                                )
+                                if (index < otherAccounts.size - 1) {
+                                    DividerItem()
+                                }
+                            }
+                            DividerItem()
+                            SettingsActionRow(
+                                icon = Icons.Outlined.PersonAdd,
+                                title = "Добавить аккаунт",
+                                subtitle = "Войти с другим email",
+                                onClick = { screenModel.logout() },
+                            )
                         }
                     }
                 }
@@ -126,14 +184,14 @@ class SettingsScreen : Screen {
                             icon = Icons.Outlined.Language,
                             title = "Язык",
                             subtitle = "Русский",
-                            onClick = {  },
+                            onClick = { },
                         )
                         DividerItem()
                         SettingsActionRow(
                             icon = Icons.Outlined.Public,
                             title = "Валюта по умолчанию",
                             subtitle = "¥ Юани",
-                            onClick = {  },
+                            onClick = { },
                         )
                         DividerItem()
                         SettingsToggleRow(
@@ -197,14 +255,27 @@ class SettingsScreen : Screen {
                         SettingsActionRow(
                             icon = Icons.Outlined.HelpOutline,
                             title = "Помощь и FAQ",
-                            onClick = {  },
+                            onClick = { },
                         )
                         DividerItem()
                         SettingsActionRow(
                             icon = Icons.Outlined.Info,
                             title = "О приложении",
                             subtitle = "Версия 1.0.0",
-                            onClick = {  },
+                            onClick = { },
+                        )
+                    }
+                }
+
+                item {
+                    SectionHeader("СЕССИЯ")
+                    Spacer(modifier = Modifier.height(8.dp))
+                    CardSettingsGroup {
+                        SettingsActionRow(
+                            icon = Icons.AutoMirrored.Outlined.Logout,
+                            title = "Выйти из аккаунта",
+                            subtitle = "Вы сможете войти снова на этом устройстве",
+                            onClick = { screenModel.logout() },
                         )
                     }
                 }
@@ -226,7 +297,7 @@ class SettingsScreen : Screen {
                             iconTint = Color(0xFFDC2626),
                             titleColor = Color(0xFFDC2626),
                             subtitleColor = Color(0xFFDC2626),
-                            onClick = {  },
+                            onClick = { },
                         )
                     }
                 }
@@ -251,7 +322,6 @@ class SettingsScreen : Screen {
         }
     }
 }
-
 
 @Composable
 fun SectionHeader(
@@ -366,9 +436,49 @@ fun SettingsToggleRow(
                     checkedThumbColor = Color.White,
                     checkedTrackColor = Color(0xFF155DFC),
                     uncheckedThumbColor = Color.White,
-                    uncheckedTrackColor = Color(0xFFD1D5DB),
                     uncheckedBorderColor = Color.Transparent,
+                    uncheckedTrackColor = Color(0xFFD1D5DB),
                 ),
+        )
+    }
+}
+
+@Composable
+private fun AccountSwitchRow(
+    user: AppUser,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clickable { onClick() }
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        GradientAvatar(
+            seed = user.id + user.name,
+            initials = avatarInitials(user.name),
+            avatarUrl = user.avatarUrl,
+            size = 40.dp,
+            fontSize = 14.sp,
+            showBorder = false,
+        )
+        Spacer(modifier = Modifier.width(16.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                user.name,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color(0xFF111827),
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(user.email, fontSize = 13.sp, color = Color(0xFF6B7280))
+        }
+        Icon(
+            imageVector = Icons.Default.SwapHoriz,
+            contentDescription = null,
+            tint = Color(0xFF9CA3AF),
         )
     }
 }
