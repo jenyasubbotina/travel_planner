@@ -18,6 +18,9 @@ data class MoreState(
     val currentUser: AppUser? = null,
     val mediaItems: List<TripMediaItem> = emptyList(),
     val checklist: List<ChecklistItem> = emptyList(),
+    val isInviteEmailDialogVisible: Boolean = false,
+    val isInviteInFlight: Boolean = false,
+    val lastCreatedInvitationId: String? = null,
 ) : UiState
 
 sealed interface MoreTabIntent : UiIntent {
@@ -46,6 +49,17 @@ sealed interface MoreTabIntent : UiIntent {
     data object ShowAddDialog : MoreTabIntent
 
     data object HideAddDialog : MoreTabIntent
+
+    data object ShowInviteEmailDialog : MoreTabIntent
+
+    data object HideInviteEmailDialog : MoreTabIntent
+
+    data class InviteByEmail(
+        val email: String,
+        val role: String,
+    ) : MoreTabIntent
+
+    data object AcknowledgeInvitationShared : MoreTabIntent
 
     data object DismissMessage : MoreTabIntent
 }

@@ -9,10 +9,14 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import org.travelplanner.app.core.BackendApiException
 import org.travelplanner.app.core.ReactiveScreenModel
 import org.travelplanner.app.core.TripEvent
 import org.travelplanner.app.core.UserSession
+import org.travelplanner.app.core.VersionConflictException
+import org.travelplanner.app.core.toEpochMillis
 import org.travelplanner.app.data.GlobalSyncManager
+import org.travelplanner.app.data.ParticipantRepository
 import org.travelplanner.app.data.TripRepository
 import kotlin.time.Clock
 
@@ -20,6 +24,7 @@ class TripListScreenModel(
     private val repository: TripRepository,
     private val userSession: UserSession,
     private val globalSyncManager: GlobalSyncManager,
+    private val participantRepository: ParticipantRepository,
 ) : ReactiveScreenModel<TripListState, TripListIntent, TripListEffect>() {
     private val _searchQuery = MutableStateFlow("")
     private val _activeFilter = MutableStateFlow(TripFilter.ALL)
@@ -48,8 +53,8 @@ class TripListScreenModel(
 
             val filteredTrips =
                 when (filter) {
-                    TripFilter.UPCOMING -> searchedTrips.filter { it.status != "ARCHIVED" && it.endDate >= now }
-                    TripFilter.ARCHIVED -> searchedTrips.filter { it.status == "ARCHIVED" || it.endDate < now }
+                    TripFilter.UPCOMING -> searchedTrips.filter { it.status != "ARCHIVED" && (it.endDate?.toEpochMillis() ?: 0L) >= now }
+                    TripFilter.ARCHIVED -> searchedTrips.filter { it.status == "ARCHIVED" || (it.endDate?.toEpochMillis() ?: 0L) < now }
                     TripFilter.ALL -> searchedTrips
                 }
 
@@ -78,6 +83,10 @@ class TripListScreenModel(
                 requestJoin(intent.code)
             }
 
+            is TripListIntent.AcceptInvitation -> {
+                acceptInvitation(intent.invitationId)
+            }
+
             is TripListIntent.Refresh -> {
                 syncTrips()
             }
@@ -99,7 +108,32 @@ class TripListScreenModel(
         }
     }
 
-    fun resolveUrl(path: String?): String? = repository.resolveUrl(path)
+    private fun acceptInvitation(invitationId: String) {
+        screenModelScope.launch {
+            try {
+                participantRepository.acceptInvitation(invitationId.trim())
+                globalSyncManager.forceFullRefresh()
+                sendEffect(TripListEffect.ShowMessage("Вы добавлены в поездку"))
+            } catch (e: VersionConflictException) {
+                sendEffect(TripListEffect.ShowMessage("Приглашение уже использовано"))
+            } catch (e: BackendApiException) {
+                println("[accept] ${e.statusCode} ${e.error.code}: ${e.error.message}")
+                val msg =
+                    when (e.statusCode) {
+                        400, 422 -> "Неверный формат кода приглашения"
+                        403 -> "Приглашение отправлено на другой email"
+                        404 -> "Приглашение не найдено"
+                        else -> "Не удалось принять приглашение (${e.statusCode})"
+                    }
+                sendEffect(TripListEffect.ShowMessage(msg))
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                println("[accept] unexpected: ${e::class.simpleName}: ${e.message}")
+                sendEffect(TripListEffect.ShowMessage("Не удалось принять приглашение: ${e.message ?: e::class.simpleName}"))
+            }
+        }
+    }
 
     private fun requestJoin(code: String) {
         screenModelScope.launch {
@@ -110,36 +144,16 @@ class TripListScreenModel(
             }
 
             try {
-                val eventDeferred =
-                    async {
-                        globalSyncManager.wsEvents.first {
-                            it is TripEvent.JoinRequestResolved && it.userId == currentUser.id.toString()
-                        } as TripEvent.JoinRequestResolved
-                    }
-
-                val trip =
+                val tripResponse =
                     repository.requestJoinTrip(
                         code = code,
-                        userId = currentUser.id.toString(),
+                        userId = currentUser.id,
                         name = currentUser.name,
                     )
 
-                repository.insertPendingTrip(trip)
-                sendEffect(TripListEffect.ShowMessage("Заявка отправлена. Ожидайте подтверждения."))
-
-                launch {
-                    try {
-                        val event = eventDeferred.await()
-                        if (event.approved) {
-                            sendEffect(TripListEffect.ShowMessage("Заявка одобрена! Поездка добавлена."))
-                            syncTrips()
-                        } else {
-                            sendEffect(TripListEffect.ShowMessage("К сожалению, ваша заявка была отклонена."))
-                            repository.deleteTripLocal(trip.id)
-                        }
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
+                if (tripResponse != null) {
+                    sendEffect(TripListEffect.ShowMessage("Заявка отправлена. Ожидайте подтверждения."))
+                    syncTrips()
                 }
             } catch (e: Exception) {
                 e.printStackTrace()

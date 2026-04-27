@@ -26,6 +26,10 @@ sealed interface TripListIntent : UiIntent {
         val code: String,
     ) : TripListIntent
 
+    data class AcceptInvitation(
+        val invitationId: String,
+    ) : TripListIntent
+
     data object Refresh : TripListIntent
 
     data object DismissMessage : TripListIntent

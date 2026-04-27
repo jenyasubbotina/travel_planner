@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Image
@@ -48,7 +49,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -60,25 +63,28 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import cafe.adriel.voyager.koin.koinNavigatorScreenModel
+import cafe.adriel.voyager.core.model.rememberNavigatorScreenModel
 import cafe.adriel.voyager.navigator.LocalNavigator
 import cafe.adriel.voyager.navigator.currentOrThrow
 import cafe.adriel.voyager.navigator.tab.Tab
 import cafe.adriel.voyager.navigator.tab.TabOptions
+import org.koin.core.context.GlobalContext
 import org.koin.core.parameter.parametersOf
+import org.travelplanner.app.core.BackendFeatureFlags
 import org.travelplanner.app.core.FilePicker
 import org.travelplanner.app.core.rememberFileDownloader
 import org.travelplanner.app.domain.MediaType
 import org.travelplanner.app.domain.TripMediaItem
+import org.travelplanner.app.features.profile.ui.GradientAvatar
+import org.travelplanner.app.features.profile.ui.avatarInitials
 import org.travelplanner.app.features.tripDetails.history.ui.HistoryScreen
 import org.travelplanner.app.features.tripDetails.more.checklist.ui.ChecklistScreen
 import org.travelplanner.app.features.tripDetails.more.files.ui.FilesScreen
 import org.travelplanner.app.features.tripDetails.more.participants.ui.ParticipantsScreen
-import org.travelplanner.app.features.tripDetails.more.settings.ui.SettingsScreen
 import org.travelplanner.app.theme.DSButton
 
 data class MoreTab(
-    private val tripId: Long,
+    private val tripId: String,
 ) : Tab {
     override val options: TabOptions
         @Composable
@@ -91,7 +97,9 @@ data class MoreTab(
     override fun Content() {
         val parentNavigator = LocalNavigator.currentOrThrow.parent!!
         val screenModel =
-            parentNavigator.koinNavigatorScreenModel<MoreTabScreenModel> { parametersOf(tripId) }
+            parentNavigator.rememberNavigatorScreenModel<MoreTabScreenModel>(tag = tripId) {
+                GlobalContext.get().get<MoreTabScreenModel> { parametersOf(tripId) }
+            }
 
         val state by screenModel.state.collectAsState()
 
@@ -99,6 +107,7 @@ data class MoreTab(
         var showDeleteWarning by remember { mutableStateOf(false) }
         var downloadTarget by remember { mutableStateOf<TripMediaItem?>(null) }
         val downloadFile = rememberFileDownloader()
+        val coroutineScope = rememberCoroutineScope()
 
         val backgroundColor = Color(0xFFF9FAFB)
 
@@ -154,7 +163,17 @@ data class MoreTab(
                     }
                     DSButton(
                         text = "Пригласить",
-                        onClick = { screenModel.handleIntent(MoreTabIntent.ShowAddDialog) },
+                        onClick = {
+                            // TODO(server): once FCM invitation push lands, always route to ShowInviteEmailDialog
+                            // (or revert to ShowAddDialog if a join-code flow is preferred).
+                            val intent =
+                                if (BackendFeatureFlags.JOIN_BY_CODE_ENABLED) {
+                                    MoreTabIntent.ShowAddDialog
+                                } else {
+                                    MoreTabIntent.ShowInviteEmailDialog
+                                }
+                            screenModel.handleIntent(intent)
+                        },
                     )
                 }
             }
@@ -174,6 +193,8 @@ data class MoreTab(
                                 name = if (participant.userId == state.currentUser?.id.toString()) "Вы" else participant.name,
                                 email = participant.email,
                                 role = participant.role,
+                                userId = participant.userId,
+                                avatarUrl = participant.avatarUrl,
                             )
                         }
 
@@ -414,7 +435,8 @@ data class MoreTab(
                         SettingsMenuRow(
                             icon = Icons.Default.Settings,
                             title = "Настройки поездки",
-                        ) { parentNavigator.push(SettingsScreen()) }
+                            // badge = "Скоро",
+                        ) { }
                     }
                 }
             }
@@ -496,7 +518,25 @@ data class MoreTab(
             ShareInviteDialog(
                 code = state.trip?.joinCode ?: "...",
                 onRegenerate = { screenModel.handleIntent(MoreTabIntent.RegenerateCode) },
+                onInviteByEmail = {
+                    screenModel.handleIntent(MoreTabIntent.HideAddDialog)
+                    screenModel.handleIntent(MoreTabIntent.ShowInviteEmailDialog)
+                },
                 onDismiss = { screenModel.handleIntent(MoreTabIntent.HideAddDialog) },
+            )
+        }
+
+        if (state.isInviteEmailDialogVisible) {
+            InviteByEmailDialog(
+                inFlight = state.isInviteInFlight,
+                createdInvitationId = state.lastCreatedInvitationId,
+                onSend = { email, role ->
+                    screenModel.handleIntent(MoreTabIntent.InviteByEmail(email, role))
+                },
+                onAcknowledgeShared = {
+                    screenModel.handleIntent(MoreTabIntent.AcknowledgeInvitationShared)
+                },
+                onDismiss = { screenModel.handleIntent(MoreTabIntent.HideInviteEmailDialog) },
             )
         }
 
@@ -532,9 +572,10 @@ data class MoreTab(
                         onClick = {
                             val target = downloadTarget!!
                             downloadTarget = null
-                            screenModel.resolveUrl(target.url)?.let { url ->
-                                val ext = target.url.substringAfterLast(".", "file")
-                                downloadFile(url, "${target.title}.$ext")
+                            coroutineScope.launch {
+                                val url = screenModel.getDownloadUrl(target) ?: return@launch
+                                val ext = target.title.substringAfterLast(".", "file")
+                                downloadFile(url, target.title.ifBlank { "file.$ext" })
                             }
                         },
                     )
@@ -555,6 +596,8 @@ fun ParticipantRowDetailed(
     isPending: Boolean = false,
     onAccept: (() -> Unit)? = null,
     onDecline: (() -> Unit)? = null,
+    userId: String? = null,
+    avatarUrl: String? = null,
 ) {
     val isLeft = role == "LEFT"
 
@@ -562,20 +605,30 @@ fun ParticipantRowDetailed(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            modifier =
-                Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(if (isPending || isLeft) Color(0xFFF3F4F6) else Color(0xFF6B7280)),
-            contentAlignment = Alignment.Center,
-        ) {
-            val initials = name.take(1).uppercase()
-            Text(
-                initials,
-                color = if (isPending || isLeft) Color.Gray else Color.White,
+        if (isPending || isLeft) {
+            Box(
+                modifier =
+                    Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFFF3F4F6)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    name.take(1).uppercase(),
+                    color = Color.Gray,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+        } else {
+            GradientAvatar(
+                seed = (userId ?: "") + name,
+                initials = avatarInitials(name),
+                avatarUrl = avatarUrl,
+                size = 40.dp,
                 fontSize = 16.sp,
-                fontWeight = FontWeight.Medium,
+                showBorder = false,
             )
         }
         Spacer(Modifier.width(12.dp))
@@ -752,6 +805,7 @@ fun SettingsMenuRow(
 fun ShareInviteDialog(
     code: String,
     onRegenerate: () -> Unit,
+    onInviteByEmail: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     AlertDialog(
@@ -798,6 +852,20 @@ fun ShareInviteDialog(
                     fontSize = 10.sp,
                     color = Color.Gray,
                 )
+
+                Spacer(Modifier.height(12.dp))
+                Divider(color = Color(0xFFE5E7EB))
+                Spacer(Modifier.height(12.dp))
+
+                TextButton(onClick = onInviteByEmail) {
+                    Icon(
+                        Icons.Default.Email,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("Пригласить по email")
+                }
             }
         },
         confirmButton = {
@@ -809,11 +877,3 @@ fun ShareInviteDialog(
         containerColor = Color.White,
     )
 }
-
-fun parseColor(hex: String): Long =
-    try {
-        val clean = hex.removePrefix("#")
-        ("FF$clean").toLong(16)
-    } catch (e: Exception) {
-        0xFF155DFC
-    }

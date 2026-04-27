@@ -30,13 +30,11 @@ import cafe.adriel.voyager.core.screen.Screen
 import cafe.adriel.voyager.koin.getScreenModel
 import cafe.adriel.voyager.navigator.LocalNavigator
 import cafe.adriel.voyager.navigator.currentOrThrow
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.filterNotNull
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.koin.core.parameter.parametersOf
 import org.travelplanner.app.core.UserSession
@@ -53,41 +51,35 @@ data class ParticipantsState(
 )
 
 class ParticipantsScreenModel(
-    private val tripId: Long,
+    private val tripId: String,
     private val participantRepository: ParticipantRepository,
     private val tripRepository: TripRepository,
     private val userSession: UserSession,
 ) : ScreenModel {
-    private val _pendingRequests = MutableStateFlow<List<PendingUser>>(emptyList())
-    private val _isOwner = MutableStateFlow(false)
+    private val isOwnerFlow =
+        tripRepository
+            .getTripById(tripId)
+            .filterNotNull()
+            .map { trip -> trip.ownerUserId == userSession.currentUser.value?.id }
 
     val state =
         combine(
             participantRepository.getParticipantsFlow(tripId),
-            _pendingRequests,
-            _isOwner,
+            participantRepository.getPendingRequestsFlow(tripId),
+            isOwnerFlow,
         ) { participants, pending, isOwner ->
-            ParticipantsState(participants, pending, isOwner)
+            ParticipantsState(
+                participants = participants,
+                pendingRequests = if (isOwner) pending else emptyList(),
+                isOwner = isOwner,
+            )
         }.stateIn(screenModelScope, SharingStarted.WhileSubscribed(5000), ParticipantsState())
 
     init {
-        loadData()
-    }
-
-    private fun loadData() {
         screenModelScope.launch {
             try {
-                val trip = tripRepository.getTripById(tripId).filterNotNull().first()
-                val currentUser = userSession.currentUser.value
-                val isOwner = trip.ownerUserId == currentUser?.id?.toString()
-
-                _isOwner.value = isOwner
-
-                if (isOwner) {
-                    _pendingRequests.value = participantRepository.getPendingRequests(tripId)
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
+                participantRepository.syncParticipants(tripId)
+            } catch (_: Exception) {
             }
         }
     }
@@ -99,7 +91,12 @@ class ParticipantsScreenModel(
         screenModelScope.launch {
             try {
                 participantRepository.resolveRequest(tripId, userId, approve)
-                _pendingRequests.update { it.filter { req -> req.id != userId } }
+                if (approve) {
+                    try {
+                        participantRepository.syncParticipants(tripId)
+                    } catch (_: Exception) {
+                    }
+                }
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -108,7 +105,7 @@ class ParticipantsScreenModel(
 }
 
 class ParticipantsScreen(
-    val tripId: Long,
+    val tripId: String,
 ) : Screen {
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
@@ -146,6 +143,8 @@ class ParticipantsScreen(
                                 name = participant.name,
                                 email = participant.email,
                                 role = participant.role,
+                                userId = participant.userId,
+                                avatarUrl = participant.avatarUrl,
                             )
                         }
                     }

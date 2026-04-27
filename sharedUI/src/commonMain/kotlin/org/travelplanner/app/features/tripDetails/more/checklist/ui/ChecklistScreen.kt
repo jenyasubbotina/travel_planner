@@ -56,7 +56,7 @@ import org.travelplanner.app.DSEmptyStateCard
 import org.travelplanner.app.theme.DSTextInput
 
 class ChecklistScreen(
-    val tripId: Long,
+    val tripId: String,
 ) : Screen {
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable

@@ -257,10 +257,10 @@ class CreateTripScreen : Screen {
                             screenModel.handleIntent(CreateTripIntent.DatesChanged(start, end))
                         }
                         showDatePicker = false
-                    }) { Text("OK") }
+                    }) { Text("ОК") }
                 },
                 dismissButton = {
-                    TextButton(onClick = { showDatePicker = false }) { Text("Cancel") }
+                    TextButton(onClick = { showDatePicker = false }) { Text("Отмена") }
                 },
             ) {
                 DateRangePicker(state = dateRangePickerState)

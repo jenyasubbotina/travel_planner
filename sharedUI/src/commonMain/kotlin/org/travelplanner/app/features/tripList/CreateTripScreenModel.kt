@@ -6,9 +6,9 @@ import kotlinx.coroutines.IO
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.travelplanner.app.core.BaseScreenModel
-import org.travelplanner.app.core.CreateTripRequest
-import org.travelplanner.app.core.UserDto
 import org.travelplanner.app.core.UserSession
+import org.travelplanner.app.core.V2CreateTripRequest
+import org.travelplanner.app.core.toIsoDate
 import org.travelplanner.app.data.ParticipantRepository
 import org.travelplanner.app.data.TripRepository
 import org.travelplanner.app.domain.Trip
@@ -68,63 +68,67 @@ class CreateTripScreenModel(
 
         if (s.title.isNotBlank() && s.startDate != null && s.endDate != null) {
             screenModelScope.launch {
-                try {
-                    var uploadedPhotoUrl: String? = null
-                    if (s.photoBytes != null) {
-                        uploadedPhotoUrl = repository.uploadPhoto(s.photoBytes)
-                    }
+                val budgetForServer = s.budget.takeIf { it.isNotBlank() }
+                    ?.toDoubleOrNull()
+                    ?.toString()
+                val request =
+                    V2CreateTripRequest(
+                        title = s.title,
+                        description = s.description.ifBlank { null },
+                        startDate = s.startDate?.toIsoDate(),
+                        endDate = s.endDate?.toIsoDate(),
+                        baseCurrency = s.currency,
+                        totalBudget = budgetForServer,
+                        destination = s.destination.ifBlank { null },
+                    )
 
-                    val request =
-                        CreateTripRequest(
-                            title = s.title,
-                            destination = s.destination,
-                            startDate = s.startDate,
-                            endDate = s.endDate,
-                            totalBudget = s.budget.toDoubleOrNull() ?: 0.0,
-                            description = s.description.ifBlank { null },
-                            ownerUserId = user.id.toString(),
-                            ownerName = user.name,
-                            ownerEmail = user.email,
-                            currency = s.currency,
-                            imageUrl = uploadedPhotoUrl,
-                        )
-
-                    val response = repository.createTrip(request)
-
-                    withContext(Dispatchers.IO) {
-                        repository.saveServerTrip(
-                            Trip(
-                                id = response.id,
-                                title = response.title,
-                                destination = response.destination,
-                                startDate = response.startDate,
-                                endDate = response.endDate,
-                                currency = s.currency,
-                                totalBudget = response.totalBudget,
-                                description = response.description,
-                                ownerUserId = response.ownerUserId,
-                                joinCode = response.joinCode,
-                                imageUrl = response.imageUrl,
-                            ),
-                        )
-                        participantRepository.insertOrUpdateParticipant(
-                            tripId = response.id,
-                            userDto =
-                                UserDto(
-                                    id = user.id.toString(),
-                                    name = user.name,
-                                    email = user.email,
-                                ),
-                        )
-                    }
-
-                    sendEffect(CreateTripEffect.NavigateBack)
+                val response = try {
+                    repository.createTrip(request)
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
                     e.printStackTrace()
                     sendEffect(CreateTripEffect.ShowMessage("Ошибка при создании: проверьте данные"))
+                    return@launch
                 }
+
+                // Save the trip locally FIRST so subsequent PATCH reads the correct version.
+                withContext(Dispatchers.IO) {
+                    repository.saveServerTrip(
+                        Trip(
+                            id = response.id,
+                            title = response.title,
+                            destination = s.destination,
+                            startDate = response.startDate,
+                            endDate = response.endDate,
+                            currency = s.currency,
+                            totalBudget = (s.budget.toDoubleOrNull() ?: 0.0).toString(),
+                            description = response.description,
+                            ownerUserId = response.createdBy,
+                            imageUrl = null,
+                            version = response.version,
+                            baseCurrency = response.baseCurrency,
+                            createdBy = response.createdBy,
+                            createdAt = response.createdAt,
+                            updatedAt = response.updatedAt,
+                        ),
+                    )
+                    participantRepository.syncParticipants(response.id)
+                }
+
+                if (s.photoBytes != null) {
+                    try {
+                        val s3Key = repository.uploadPhoto(response.id, s.photoBytes)
+                        repository.setTripImageUrl(response.id, s3Key)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                        sendEffect(CreateTripEffect.ShowMessage("Поездка создана, но не удалось загрузить обложку"))
+                    }
+                }
+
+                sendEffect(CreateTripEffect.NavigateBack)
             }
         }
     }

@@ -9,13 +9,16 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
+import org.travelplanner.app.core.BackendApiException
+import org.travelplanner.app.core.GlobalNotifier
 import org.travelplanner.app.core.ReactiveScreenModel
 import org.travelplanner.app.core.TripEvent
 import org.travelplanner.app.core.UserSession
+import org.travelplanner.app.core.VersionConflictException
+import org.travelplanner.app.core.toEpochMillis
 import org.travelplanner.app.data.EventRepository
 import org.travelplanner.app.data.ExpenseRepository
 import org.travelplanner.app.data.GlobalSyncManager
@@ -30,7 +33,7 @@ import org.travelplanner.app.features.tripDetails.more.checklist.data.ChecklistR
 import org.travelplanner.app.features.tripDetails.route.detailed.data.EventFileDto
 
 class MoreTabScreenModel(
-    private val tripId: Long,
+    private val tripId: String,
     private val tripRepository: TripRepository,
     private val participantRepository: ParticipantRepository,
     private val expenseRepository: ExpenseRepository,
@@ -38,10 +41,14 @@ class MoreTabScreenModel(
     private val checklistRepository: ChecklistRepository,
     private val globalSyncManager: GlobalSyncManager,
     private val userSession: UserSession,
+    private val globalNotifier: GlobalNotifier,
     private val json: Json,
 ) : ReactiveScreenModel<MoreState, MoreTabIntent, MoreTabEffect>() {
-    private val _pendingRequests = MutableStateFlow<List<PendingUser>>(emptyList())
     private val _isAddDialogVisible = MutableStateFlow(false)
+    private val _isInviteEmailDialogVisible = MutableStateFlow(false)
+    private val _isInviteInFlight = MutableStateFlow(false)
+
+    private val _lastCreatedInvitationId = MutableStateFlow<String?>(null)
 
     val currentUser = userSession.currentUser.value
 
@@ -50,18 +57,22 @@ class MoreTabScreenModel(
             tripRepository.getTripById(tripId).filterNotNull(),
             expenseRepository.getExpensesFlow(tripId),
             eventRepository.getEventsFlow(tripId),
-        ) { trip, expenses, events ->
+            tripRepository.getTripLevelAttachmentsFlow(tripId),
+        ) { trip, expenses, events, tripAttachments ->
             val files = mutableListOf<TripMediaItem>()
+
+            val tripStartMillis = trip.startDate?.toEpochMillis() ?: 0L
 
             trip.imageUrl?.let {
                 files.add(
                     TripMediaItem(
-                        it,
-                        "Обложка",
-                        trip.title,
-                        MediaType.IMAGE,
-                        trip.startDate,
-                        "Поездка",
+                        url = it,
+                        title = "Обложка",
+                        subtitle = trip.title,
+                        type = MediaType.IMAGE,
+                        date = tripStartMillis,
+                        category = "Поездка",
+                        s3Key = it,
                     ),
                 )
             }
@@ -74,7 +85,7 @@ class MoreTabScreenModel(
                             exp.title,
                             "Чек (${exp.category})",
                             MediaType.IMAGE,
-                            exp.date,
+                            exp.date.toEpochMillis(),
                             "Расходы",
                         ),
                     )
@@ -82,7 +93,7 @@ class MoreTabScreenModel(
             }
 
             events.forEach { ev ->
-                val eventDate = trip.startDate + (ev.dayIndex * 86400000L)
+                val eventDate = tripStartMillis + (ev.dayIndex * 86400000L)
 
                 ev.files.forEach { file ->
                     files.add(
@@ -93,26 +104,25 @@ class MoreTabScreenModel(
                             type = if (file.type == "PHOTO") MediaType.IMAGE else MediaType.DOCUMENT,
                             date = eventDate,
                             category = "События",
+                            s3Key = file.url,
                         ),
                     )
                 }
             }
 
-            val tripFiles =
-                try {
-                    json.decodeFromString<List<EventFileDto>>(trip.filesJson ?: "[]")
-                } catch (e: Exception) {
-                    emptyList()
-                }
-            tripFiles.forEach { file ->
+            tripAttachments.forEach { att ->
+                val isImage = att.mimeType.startsWith("image/")
                 files.add(
                     TripMediaItem(
-                        url = file.url,
-                        title = file.name,
+                        url = att.s3Key,
+                        title = att.fileName,
                         subtitle = "Загруженный файл",
-                        type = if (file.type == "PHOTO") MediaType.IMAGE else MediaType.DOCUMENT,
-                        date = trip.startDate,
+                        type = if (isImage) MediaType.IMAGE else MediaType.DOCUMENT,
+                        date =
+                            runCatching { att.createdAt.toEpochMillis() }.getOrNull()
+                                ?: tripStartMillis,
                         category = "Файлы",
+                        s3Key = att.s3Key,
                     ),
                 )
             }
@@ -123,11 +133,20 @@ class MoreTabScreenModel(
     private val managementFlow =
         combine(
             participantRepository.getParticipantsFlow(tripId),
-            _pendingRequests,
+            participantRepository.getPendingRequestsFlow(tripId),
             _isAddDialogVisible,
             userSession.currentUser,
         ) { participants, pending, showDialog, user ->
             ManagementState(participants, pending, showDialog, user)
+        }
+
+    private val inviteFlow =
+        combine(
+            _isInviteEmailDialogVisible,
+            _isInviteInFlight,
+            _lastCreatedInvitationId,
+        ) { visible, inFlight, createdId ->
+            InviteState(visible, inFlight, createdId)
         }
 
     override val state: StateFlow<MoreState> =
@@ -135,10 +154,11 @@ class MoreTabScreenModel(
             tripRepository.getTripById(tripId).filterNotNull(),
             mediaItemsFlow,
             managementFlow,
+            inviteFlow,
             checklistRepository.getChecklistFlow(tripId).map { list ->
-                list.filter { it.isGroup || it.ownerUserId == currentUser?.id.toString() }
+                list.filter { it.isGroup || it.ownerUserId == currentUser?.id }
             },
-        ) { trip, media, mgmt, checklist ->
+        ) { trip, media, mgmt, invite, checklist ->
             MoreState(
                 trip = trip,
                 list = mgmt.participants,
@@ -147,6 +167,9 @@ class MoreTabScreenModel(
                 currentUser = mgmt.user,
                 mediaItems = media,
                 checklist = checklist,
+                isInviteEmailDialogVisible = invite.visible,
+                isInviteInFlight = invite.inFlight,
+                lastCreatedInvitationId = invite.createdInvitationId,
             )
         }.stateIn(screenModelScope, SharingStarted.WhileSubscribed(5000), MoreState())
 
@@ -157,13 +180,18 @@ class MoreTabScreenModel(
         val user: org.travelplanner.app.core.AppUser?,
     )
 
+    private data class InviteState(
+        val visible: Boolean,
+        val inFlight: Boolean,
+        val createdInvitationId: String?,
+    )
+
     init {
-        loadPendingRequests()
+        // One-shot bootstrap on entry — FCM-driven syncTrigger handles ongoing updates.
         screenModelScope.launch {
-            globalSyncManager.wsEvents.collect { event ->
-                if (event is TripEvent.JoinRequestReceived || event is TripEvent.JoinRequestResolved) {
-                    loadPendingRequests()
-                }
+            try {
+                participantRepository.syncParticipants(tripId)
+            } catch (_: Exception) {
             }
         }
     }
@@ -202,25 +230,71 @@ class MoreTabScreenModel(
                 _isAddDialogVisible.value = false
             }
 
+            is MoreTabIntent.ShowInviteEmailDialog -> {
+                _lastCreatedInvitationId.value = null
+                _isInviteEmailDialogVisible.value = true
+            }
+
+            is MoreTabIntent.HideInviteEmailDialog -> {
+                _isInviteEmailDialogVisible.value = false
+                _lastCreatedInvitationId.value = null
+            }
+
+            is MoreTabIntent.InviteByEmail -> {
+                inviteByEmail(intent.email, intent.role)
+            }
+
+            is MoreTabIntent.AcknowledgeInvitationShared -> {
+                _isInviteEmailDialogVisible.value = false
+                _lastCreatedInvitationId.value = null
+            }
+
             is MoreTabIntent.DismissMessage -> {}
         }
     }
 
-    fun resolveUrl(path: String?): String? = tripRepository.resolveUrl(path)
-
-    private fun loadPendingRequests() {
+    private fun inviteByEmail(
+        email: String,
+        role: String,
+    ) {
         screenModelScope.launch {
+            _isInviteInFlight.value = true
             try {
-                val trip = tripRepository.getTripById(tripId).filterNotNull().first()
-                val isOwner = trip.ownerUserId == currentUser?.id?.toString()
-                if (isOwner) {
-                    _pendingRequests.value = participantRepository.getPendingRequests(tripId)
-                }
+                val invitation = participantRepository.inviteByEmail(tripId, email, role)
+
+                _lastCreatedInvitationId.value = invitation.id
+                globalNotifier.notifySuccess("Приглашение создано")
+                participantRepository.syncParticipants(tripId)
+            } catch (e: VersionConflictException) {
+                val msg =
+                    when (e.error.code) {
+                        "ALREADY_PARTICIPANT" -> "Пользователь уже в поездке"
+                        else -> "Приглашение уже отправлено этому пользователю"
+                    }
+                globalNotifier.notifyError(msg)
+            } catch (e: BackendApiException) {
+                println("[invite] ${e.statusCode} ${e.error.code}: ${e.error.message}")
+                val msg =
+                    when (e.statusCode) {
+                        400 -> "Неверный email"
+                        403 -> "Только владелец поездки может приглашать"
+                        404 -> "Поездка не найдена"
+                        422 -> e.error.message.ifBlank { "Приглашение уже отправлено или поездка не активна" }
+                        else -> "Не удалось отправить приглашение (${e.statusCode})"
+                    }
+                globalNotifier.notifyError(msg)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
-                e.printStackTrace()
+                println("[invite] unexpected: ${e::class.simpleName}: ${e.message}")
+                globalNotifier.notifyError("Не удалось отправить приглашение")
+            } finally {
+                _isInviteInFlight.value = false
             }
         }
     }
+
+    fun resolveUrl(path: String?): String? = path
 
     private fun resolveRequest(
         userId: String,
@@ -228,7 +302,12 @@ class MoreTabScreenModel(
     ) {
         screenModelScope.launch {
             participantRepository.resolveRequest(tripId, userId, approve)
-            _pendingRequests.update { it.filter { req -> req.id != userId } }
+            if (approve) {
+                try {
+                    participantRepository.syncParticipants(tripId)
+                } catch (_: Exception) {
+                }
+            }
         }
     }
 
@@ -261,24 +340,21 @@ class MoreTabScreenModel(
                     globalSyncManager.networkState.first { it == NetworkState.ONLINE }
                 }
 
-                val url = tripRepository.uploadFile(bytes, fileName)
-                val trip = tripRepository.getTripById(tripId).filterNotNull().first()
-                val existingFiles =
-                    try {
-                        json.decodeFromString<List<EventFileDto>>(trip.filesJson ?: "[]")
-                    } catch (e: Exception) {
-                        emptyList()
-                    }
-                val ext = fileName.substringAfterLast(".", "").lowercase()
-                val type =
-                    if (ext in listOf("jpg", "jpeg", "png", "gif", "webp")) "PHOTO" else "DOCUMENT"
-                val updatedFiles =
-                    existingFiles + EventFileDto(name = fileName, url = url, type = type)
-                val updatedJson = json.encodeToString(updatedFiles)
-                tripRepository.updateTripFilesRemote(tripId, updatedJson)
+                val attachment = tripRepository.uploadFile(tripId, bytes, fileName)
+                tripRepository.saveAttachmentLocally(attachment)
             } catch (e: Exception) {
                 e.printStackTrace()
             }
+        }
+    }
+
+    suspend fun getDownloadUrl(item: TripMediaItem): String? {
+        val key = item.s3Key ?: return item.url
+        return try {
+            tripRepository.getDownloadUrl(key)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
         }
     }
 

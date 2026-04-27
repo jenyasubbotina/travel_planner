@@ -13,15 +13,14 @@ import org.travelplanner.app.data.ParticipantRepository
 import org.travelplanner.app.features.tripDetails.more.checklist.data.ChecklistRepository
 
 class ChecklistScreenModel(
-    private val tripId: Long,
+    private val tripId: String,
     private val checklistRepository: ChecklistRepository,
     private val participantRepository: ParticipantRepository,
     private val userSession: UserSession,
 ) : ReactiveScreenModel<ChecklistState, ChecklistIntent, ChecklistEffect>() {
     private val currentUserId =
         userSession.currentUser.value
-            ?.id
-            ?.toString() ?: ""
+            ?.id ?: ""
 
     override val state: StateFlow<ChecklistState> =
         combine(

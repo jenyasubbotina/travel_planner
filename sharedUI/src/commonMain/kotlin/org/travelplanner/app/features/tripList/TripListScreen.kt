@@ -9,10 +9,15 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.FlightTakeoff
+import androidx.compose.material.icons.filled.Group
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.MailOutline
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.VpnKey
@@ -34,13 +39,17 @@ import coil3.compose.AsyncImage
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import org.travelplanner.app.DSEmptyStateCard
-import org.travelplanner.app.DebugUserSwitcher
 import org.travelplanner.app.core.GatewayConfigManager
-import org.travelplanner.app.core.TripUtils.toReadableDate
+import org.travelplanner.app.core.TripUtils.formatDateRangeRuAbbr
+import org.travelplanner.app.core.TripUtils.formatNumber
+import org.travelplanner.app.core.TripUtils.isoToEpochMillis
+import org.travelplanner.app.core.TripUtils.pluralizeDays
 import org.travelplanner.app.core.UserSession
+import org.travelplanner.app.core.rememberResolvedImageUrl
 import org.travelplanner.app.data.GlobalSyncManager
 import org.travelplanner.app.data.SyncState
 import org.travelplanner.app.domain.Trip
+import org.travelplanner.app.features.profile.ui.ProfileAvatar
 import org.travelplanner.app.features.tripDetails.SyncIndicator
 import org.travelplanner.app.features.tripDetails.TripDetailsScreen
 import org.travelplanner.app.theme.DSTextChip
@@ -67,6 +76,8 @@ class TripListScreen : Screen {
         var isFabExpanded by remember { mutableStateOf(false) }
         var showJoinDialog by remember { mutableStateOf(false) }
 
+        var showAcceptInvitationDialog by remember { mutableStateOf(false) }
+
         val snackbarHostState = remember { SnackbarHostState() }
 
         LaunchedEffect(Unit) {
@@ -86,8 +97,6 @@ class TripListScreen : Screen {
                             containerColor = Color.Transparent,
                         ),
                     actions = {
-                        DebugUserSwitcher(userSession, isLoginScreen = false)
-                        Spacer(Modifier.width(8.dp))
                         SyncIndicator(
                             networkState = networkState,
                             syncState = SyncState.UP_TO_DATE,
@@ -96,6 +105,8 @@ class TripListScreen : Screen {
                             onConfigSave = { scope.launch { gatewayManager.updateConfig(it) } },
                         ) { }
                         Spacer(Modifier.width(8.dp))
+                        ProfileAvatar(userSession = userSession, navigator = navigator)
+                        Spacer(Modifier.width(8.dp))
                     },
                 )
             },
@@ -103,6 +114,35 @@ class TripListScreen : Screen {
             floatingActionButton = {
                 Column(horizontalAlignment = Alignment.End) {
                     if (isFabExpanded) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(bottom = 16.dp),
+                        ) {
+                            Text(
+                                "По приглашению",
+                                modifier =
+                                    Modifier
+                                        .background(Color.White, RoundedCornerShape(8.dp))
+                                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                                fontSize = 14.sp,
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            FloatingActionButton(
+                                onClick = {
+                                    isFabExpanded = false
+                                    showAcceptInvitationDialog = true
+                                },
+                                containerColor = Color.White,
+                                contentColor = Color(0xFF155DFC),
+                                modifier = Modifier.size(48.dp),
+                            ) {
+                                Icon(
+                                    Icons.Default.MailOutline,
+                                    contentDescription = "Accept invitation",
+                                )
+                            }
+                        }
+
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.padding(bottom = 16.dp),
@@ -189,6 +229,7 @@ class TripListScreen : Screen {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     DSTextChip(
                         text = "Все",
@@ -199,12 +240,14 @@ class TripListScreen : Screen {
                         text = "Предстоящие",
                         isActive = state.activeFilter == TripFilter.UPCOMING,
                         onClick = { screenModel.handleIntent(TripListIntent.FilterChange(TripFilter.UPCOMING)) },
+                        leadingIcon = Icons.Default.CalendarToday,
                     )
                     DSTextChip(
                         text = "Архив",
                         isActive = state.activeFilter == TripFilter.ARCHIVED,
                         onClick = { screenModel.handleIntent(TripListIntent.FilterChange(TripFilter.ARCHIVED)) },
                     )
+                    Spacer(Modifier.weight(1f))
                     IconButton(onClick = { }) {
                         Icon(Icons.Default.FilterList, contentDescription = "Filter")
                     }
@@ -229,7 +272,7 @@ class TripListScreen : Screen {
                                     onRefresh = { screenModel.handleIntent(TripListIntent.Refresh) },
                                 )
                             } else {
-                                TripCard(trip, screenModel::resolveUrl) {
+                                TripCard(trip) {
                                     navigator.push(
                                         TripDetailsScreen(trip.id),
                                     )
@@ -249,33 +292,62 @@ class TripListScreen : Screen {
                 },
             )
         }
+
+        if (showAcceptInvitationDialog) {
+            AcceptInvitationDialog(
+                onDismiss = { showAcceptInvitationDialog = false },
+                onSubmit = { id ->
+                    screenModel.handleIntent(TripListIntent.AcceptInvitation(id))
+                    showAcceptInvitationDialog = false
+                },
+            )
+        }
     }
 }
 
 @Composable
 fun TripCard(
     trip: Trip,
-    resolveUrl: (String?) -> String?,
     onClick: () -> Unit,
 ) {
     val currentMillis = Clock.System.now().toEpochMilliseconds()
-    val daysToStart = ceil((trip.startDate - currentMillis) / (1000.0 * 60 * 60 * 24)).toInt()
+    val startMillis = isoToEpochMillis(trip.startDate)
+    val endMillis = isoToEpochMillis(trip.endDate)
+    val daysToStart = ceil((startMillis - currentMillis) / (1000.0 * 60 * 60 * 24)).toInt()
+
+    val totalBudget = trip.totalBudget.toDoubleOrNull() ?: 0.0
+    val spentAmount = trip.spentAmount.toDoubleOrNull() ?: 0.0
 
     val statusText =
         when {
-            currentMillis < trip.startDate -> if (daysToStart == 1) "Завтра" else "Через $daysToStart дн."
-            currentMillis > trip.endDate -> "Завершена"
-            else -> "В поездке"
+            currentMillis < startMillis -> {
+                if (daysToStart == 1) "Завтра" else "Через $daysToStart ${pluralizeDays(daysToStart)}"
+            }
+
+            currentMillis > endMillis -> {
+                "Завершена"
+            }
+
+            else -> {
+                "В поездке"
+            }
+        }
+
+    val statusBgColor =
+        when {
+            currentMillis < startMillis -> Color(0xFF00C950)
+            currentMillis > endMillis -> Color(0xFF4A5565)
+            else -> Color(0xFF155DFC)
         }
 
     val progress =
-        if (trip.totalBudget > 0) {
-            (trip.spentAmount / trip.totalBudget).toFloat().coerceIn(0f, 1f)
+        if (totalBudget > 0) {
+            (spentAmount / totalBudget).toFloat().coerceIn(0f, 1f)
         } else {
             0f
         }
 
-    val remainingBudget = trip.totalBudget - trip.spentAmount
+    val remainingBudget = totalBudget - spentAmount
 
     Card(
         shape = RoundedCornerShape(16.dp),
@@ -284,7 +356,6 @@ fun TripCard(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .height(280.dp)
                 .padding(bottom = 8.dp)
                 .clickable(onClick = onClick),
     ) {
@@ -296,8 +367,9 @@ fun TripCard(
                         .height(160.dp),
             ) {
                 if (trip.imageUrl != null) {
+                    val resolved = rememberResolvedImageUrl(trip.imageUrl)
                     AsyncImage(
-                        model = resolveUrl(trip.imageUrl),
+                        model = resolved,
                         contentDescription = "Trip Photo",
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize(),
@@ -313,7 +385,7 @@ fun TripCard(
                         Modifier
                             .align(Alignment.TopEnd)
                             .padding(12.dp)
-                            .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
+                            .background(statusBgColor, RoundedCornerShape(16.dp))
                             .padding(horizontal = 10.dp, vertical = 4.dp),
                 ) {
                     Text(
@@ -336,11 +408,22 @@ fun TripCard(
                         fontSize = 20.sp,
                         fontWeight = FontWeight.Medium,
                     )
-                    Text(
-                        text = trip.destination,
-                        color = Color.White.copy(alpha = 0.9f),
-                        fontSize = 14.sp,
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.LocationOn,
+                            contentDescription = null,
+                            tint = Color.White.copy(alpha = 0.9f),
+                            modifier = Modifier.size(14.dp),
+                        )
+                        Text(
+                            text = trip.destination,
+                            color = Color.White.copy(alpha = 0.9f),
+                            fontSize = 14.sp,
+                        )
+                    }
                 }
             }
 
@@ -354,17 +437,40 @@ fun TripCard(
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(
-                        text = "${trip.startDate.toReadableDate()} — ${trip.endDate.toReadableDate()}",
-                        color = Color(0xFF4A5565),
-                        fontSize = 14.sp,
-                    )
-                    Text(
-                        text = "${trip.participantCount} \uD83D\uDC64",
-                        color = Color(0xFF4A5565),
-                        fontSize = 14.sp,
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CalendarToday,
+                            contentDescription = null,
+                            tint = Color(0xFF6A7282),
+                            modifier = Modifier.size(14.dp),
+                        )
+                        Text(
+                            text = formatDateRangeRuAbbr(trip.startDate, trip.endDate),
+                            color = Color(0xFF4A5565),
+                            fontSize = 14.sp,
+                        )
+                    }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Group,
+                            contentDescription = null,
+                            tint = Color(0xFF6A7282),
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Text(
+                            text = "${trip.participantCount}",
+                            color = Color(0xFF4A5565),
+                            fontSize = 14.sp,
+                        )
+                    }
                 }
 
                 Row(
@@ -373,7 +479,7 @@ fun TripCard(
                 ) {
                     Text("Бюджет", color = Color(0xFF4A5565), fontSize = 14.sp)
                     Text(
-                        text = "${trip.spentAmount.toInt()} / ${trip.totalBudget.toInt()} ${trip.currency}",
+                        text = "${formatNumber(spentAmount)} / ${formatNumber(totalBudget)} ${trip.currency}",
                         fontWeight = FontWeight.Medium,
                         fontSize = 14.sp,
                         color = if (remainingBudget < 0) Color(0xFFDC2626) else Color(0xFF0A0A0A),
@@ -391,16 +497,27 @@ fun TripCard(
                     trackColor = Color(0xFFF3F4F6),
                 )
 
-                Text(
-                    text =
-                        if (remainingBudget >= 0) {
-                            "Осталось ${remainingBudget.toInt()} ${trip.currency}"
-                        } else {
-                            "Превышен на ${(-remainingBudget).toInt()} ${trip.currency}"
-                        },
-                    fontSize = 12.sp,
-                    color = if (remainingBudget >= 0) Color(0xFF6A7282) else Color(0xFFDC2626),
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.TrendingUp,
+                        contentDescription = null,
+                        tint = if (remainingBudget >= 0) Color(0xFF6A7282) else Color(0xFFDC2626),
+                        modifier = Modifier.size(14.dp),
+                    )
+                    Text(
+                        text =
+                            if (remainingBudget >= 0) {
+                                "Осталось ${formatNumber(remainingBudget)} ${trip.currency}"
+                            } else {
+                                "Превышен на ${formatNumber(-remainingBudget)} ${trip.currency}"
+                            },
+                        fontSize = 12.sp,
+                        color = if (remainingBudget >= 0) Color(0xFF6A7282) else Color(0xFFDC2626),
+                    )
+                }
             }
         }
     }

@@ -41,8 +41,11 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import org.koin.core.parameter.parametersOf
+import org.travelplanner.app.core.TripUtils.isoToEpochMillis
+import org.travelplanner.app.core.toEpochMillis
 import org.travelplanner.app.DSEmptyStateCard
 import org.travelplanner.app.data.EventRepository
 import org.travelplanner.app.data.ExpenseRepository
@@ -50,32 +53,39 @@ import org.travelplanner.app.data.TripRepository
 import org.travelplanner.app.domain.MediaType
 import org.travelplanner.app.domain.TripMediaItem
 import org.travelplanner.app.features.tripDetails.more.FilePreviewRow
-import org.travelplanner.app.features.tripDetails.route.detailed.data.EventFileDto
 
 class FilesScreenModel(
-    private val tripId: Long,
+    private val tripId: String,
     private val tripRepository: TripRepository,
     private val expenseRepository: ExpenseRepository,
     private val eventRepository: EventRepository,
     private val json: Json,
 ) : ScreenModel {
+    init {
+        screenModelScope.launch { tripRepository.refreshTripFiles(tripId) }
+    }
+
     val filesState =
         combine(
             tripRepository.getTripById(tripId).filterNotNull(),
             expenseRepository.getExpensesFlow(tripId),
             eventRepository.getEventsFlow(tripId),
-        ) { trip, expenses, events ->
+            tripRepository.getTripLevelAttachmentsFlow(tripId),
+        ) { trip, expenses, events, tripAttachments ->
             val files = mutableListOf<TripMediaItem>()
+
+            val tripStartMillis = isoToEpochMillis(trip.startDate)
 
             trip.imageUrl?.let {
                 files.add(
                     TripMediaItem(
-                        it,
-                        "Обложка",
-                        trip.title,
-                        MediaType.IMAGE,
-                        trip.startDate,
-                        "Поездка",
+                        url = it,
+                        title = "Обложка",
+                        subtitle = trip.title,
+                        type = MediaType.IMAGE,
+                        date = tripStartMillis,
+                        category = "Поездка",
+                        s3Key = it,
                     ),
                 )
             }
@@ -88,7 +98,7 @@ class FilesScreenModel(
                             exp.title,
                             "Чек (${exp.category})",
                             MediaType.IMAGE,
-                            exp.date,
+                            isoToEpochMillis(exp.date),
                             "Расходы",
                         ),
                     )
@@ -96,7 +106,7 @@ class FilesScreenModel(
             }
 
             events.forEach { ev ->
-                val eventDate = trip.startDate + (ev.dayIndex * 86400000L)
+                val eventDate = tripStartMillis + (ev.dayIndex * 86400000L)
 
                 ev.files.forEach { file ->
                     files.add(
@@ -107,36 +117,43 @@ class FilesScreenModel(
                             type = if (file.type == "PHOTO") MediaType.IMAGE else MediaType.DOCUMENT,
                             date = eventDate,
                             category = "События",
+                            s3Key = file.url,
                         ),
                     )
                 }
             }
 
-            val tripFiles =
-                try {
-                    json.decodeFromString<List<EventFileDto>>(trip.filesJson ?: "[]")
-                } catch (e: Exception) {
-                    emptyList()
-                }
-            tripFiles.forEach { file ->
+            tripAttachments.forEach { att ->
+                val isImage = att.mimeType.startsWith("image/")
                 files.add(
                     TripMediaItem(
-                        url = file.url,
-                        title = file.name,
+                        url = att.s3Key,
+                        title = att.fileName,
                         subtitle = "Загруженный файл",
-                        type = if (file.type == "PHOTO") MediaType.IMAGE else MediaType.DOCUMENT,
-                        date = trip.startDate,
+                        type = if (isImage) MediaType.IMAGE else MediaType.DOCUMENT,
+                        date = runCatching { att.createdAt.toEpochMillis() }.getOrNull() ?: tripStartMillis,
                         category = "Файлы",
+                        s3Key = att.s3Key,
                     ),
                 )
             }
 
             files.sortedByDescending { it.date }.groupBy { it.category }
         }.stateIn(screenModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
+    suspend fun getDownloadUrl(item: TripMediaItem): String? {
+        val key = item.s3Key ?: return item.url
+        return try {
+            tripRepository.getDownloadUrl(key)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
 }
 
 class FilesScreen(
-    val tripId: Long,
+    val tripId: String,
 ) : Screen {
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
