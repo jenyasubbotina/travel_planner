@@ -27,10 +27,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -42,15 +39,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
+import org.travelplanner.app.auth.AuthForm
 import org.travelplanner.app.core.UserSession
 import org.travelplanner.app.theme.DSButton
-import org.travelplanner.app.theme.DSTextInput
 
 private val Blue = Color(0xFF155DFC)
 private val GrayText = Color(0xFF4A5565)
 private val GrayDot = Color(0xFFD1D5DC)
-private val BackButton = Color(0xFFF3F4F6)
-private val BackButtonText = Color(0xFF364153)
 
 private data class OnboardingPage(
     val emoji: String,
@@ -62,25 +57,25 @@ private data class OnboardingPage(
 private val pages =
     listOf(
         OnboardingPage(
-            emoji = "\uD83D\uDDFA\uFE0F",
+            emoji = "🗺️",
             gradientColors = listOf(Color(0xFF2B7FFF), Color(0xFF155DFC)),
             title = "Планируйте маршруты",
             description = "Создавайте детальные маршруты по дням с точками на карте. Добавляйте заметки, время и бронирования.",
         ),
         OnboardingPage(
-            emoji = "\uD83D\uDC65",
+            emoji = "👥",
             gradientColors = listOf(Color(0xFFAD46FF), Color(0xFF9810FA)),
             title = "Путешествуйте вместе",
             description = "Приглашайте друзей, делитесь планами и синхронизируйте изменения в реальном времени.",
         ),
         OnboardingPage(
-            emoji = "\uD83D\uDCB0",
+            emoji = "💰",
             gradientColors = listOf(Color(0xFF00C950), Color(0xFF00A63E)),
             title = "Делите расходы",
             description = "Отслеживайте траты, делите счета поровну или по долям. Прикрепляйте чеки и фото.",
         ),
         OnboardingPage(
-            emoji = "\uD83D\uDCCA",
+            emoji = "📊",
             gradientColors = listOf(Color(0xFFFF6900), Color(0xFFF54900)),
             title = "Контролируйте бюджет",
             description = "Следите за бюджетом в реальном времени. Получайте уведомления о расходах и балансе.",
@@ -256,42 +251,13 @@ private fun FeaturePage(page: OnboardingPage) {
 
 @Composable
 private fun RegistrationPage(userSession: UserSession) {
-    var name by remember { mutableStateOf("") }
-    val scope = rememberCoroutineScope()
-
-    Column(
+    Box(
         modifier =
             Modifier
                 .fillMaxSize()
-                .padding(24.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
+                .background(Color.White),
     ) {
-        Text("\uD83D\uDC4B Привет!", fontSize = 32.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(16.dp))
-        Text("Как вас зовут?", fontSize = 16.sp, color = Color.Gray)
-
-        Spacer(Modifier.height(32.dp))
-
-        DSTextInput(
-            value = name,
-            onValueChange = { name = it },
-            placeholder = "Ваше имя",
-            label = "Ваше имя",
-            modifier = Modifier.fillMaxWidth(),
-        )
-
-        Spacer(Modifier.height(24.dp))
-
-        DSButton(
-            text = "Начать",
-            onClick = {
-                if (name.isNotBlank()) {
-                    scope.launch { userSession.createNewUser(name) }
-                }
-            },
-            modifier = Modifier.fillMaxWidth(),
-        )
+        AuthForm(userSession = userSession)
     }
 }
 
@@ -327,7 +293,7 @@ fun SplashScreen() {
                         ),
                 contentAlignment = Alignment.Center,
             ) {
-                Text("\u2708\uFE0F", fontSize = 40.sp)
+                Text("✈️", fontSize = 40.sp)
             }
 
             Spacer(Modifier.height(24.dp))
