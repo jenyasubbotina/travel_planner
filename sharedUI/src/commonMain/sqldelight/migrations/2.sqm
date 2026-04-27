@@ -1,0 +1,11 @@
+CREATE TABLE IF NOT EXISTS attachmentEntity (
+    id TEXT NOT NULL PRIMARY KEY,
+    tripId TEXT NOT NULL,
+    expenseId TEXT,
+    uploadedBy TEXT NOT NULL,
+    fileName TEXT NOT NULL,
+    fileSize INTEGER NOT NULL,
+    mimeType TEXT NOT NULL,
+    s3Key TEXT NOT NULL,
+    createdAt TEXT NOT NULL
+);

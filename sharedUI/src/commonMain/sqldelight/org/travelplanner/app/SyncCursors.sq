@@ -1,0 +1,22 @@
+CREATE TABLE syncCursorEntity (
+    tripId TEXT NOT NULL PRIMARY KEY,
+    cursor TEXT NOT NULL,
+    tripVersion INTEGER NOT NULL DEFAULT 0,
+    updatedAt INTEGER NOT NULL DEFAULT 0
+);
+
+getCursor:
+SELECT cursor FROM syncCursorEntity WHERE tripId = ?;
+
+getTripVersion:
+SELECT tripVersion FROM syncCursorEntity WHERE tripId = ?;
+
+upsertCursor:
+INSERT OR REPLACE INTO syncCursorEntity(tripId, cursor, tripVersion, updatedAt)
+VALUES (?, ?, ?, ?);
+
+deleteCursor:
+DELETE FROM syncCursorEntity WHERE tripId = ?;
+
+deleteAllCursors:
+DELETE FROM syncCursorEntity;

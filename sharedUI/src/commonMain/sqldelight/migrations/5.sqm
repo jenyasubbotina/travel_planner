@@ -1,0 +1,2 @@
+ALTER TABLE tripParticipantEntity DROP COLUMN avatarColor1;
+ALTER TABLE tripParticipantEntity DROP COLUMN avatarColor2;

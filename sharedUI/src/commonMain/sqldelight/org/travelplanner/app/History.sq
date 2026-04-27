@@ -1,6 +1,6 @@
 CREATE TABLE HistoryLogEntity (
     id TEXT NOT NULL PRIMARY KEY,
-    tripId INTEGER NOT NULL,
+    tripId TEXT NOT NULL,
     userId TEXT NOT NULL,
     actionType TEXT NOT NULL,
     entityType TEXT NOT NULL,
@@ -17,3 +17,6 @@ getLogsForTrip:
 SELECT * FROM HistoryLogEntity
 WHERE tripId = ?
 ORDER BY timestamp DESC;
+
+deleteLogsForTrip:
+DELETE FROM HistoryLogEntity WHERE tripId = ?;

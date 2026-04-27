@@ -1,16 +1,16 @@
 CREATE TABLE tripParticipantEntity (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    tripId INTEGER NOT NULL,
-    userId TEXT, -- Stores the KStore/Server User ID
+    tripId TEXT NOT NULL,
+    userId TEXT NOT NULL,
     name TEXT NOT NULL,
     email TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'VIEWER',
-    avatarColor1 TEXT NOT NULL,
-    avatarColor2 TEXT NOT NULL
+    joinedAt TEXT,
+    avatarUrl TEXT
 );
 
 insertParticipant:
-INSERT INTO tripParticipantEntity(tripId, userId, name, email, role, avatarColor1, avatarColor2)
+INSERT INTO tripParticipantEntity(tripId, userId, name, email, role, joinedAt, avatarUrl)
 VALUES (?, ?, ?, ?, ?, ?, ?);
 
 getParticipantsForTrip:
@@ -37,6 +37,9 @@ updateParticipantDetails:
 UPDATE tripParticipantEntity
 SET name = ?, email = ?, role = ?
 WHERE tripId = ? AND userId = ?;
+
+deleteParticipantsForTrip:
+DELETE FROM tripParticipantEntity WHERE tripId = ?;
 
 lastInsertRowId:
 SELECT last_insert_rowid();

@@ -1,0 +1,26 @@
+CREATE TABLE tripJoinRequestEntity (
+    id TEXT NOT NULL PRIMARY KEY,
+    tripId TEXT NOT NULL,
+    requesterUserId TEXT NOT NULL,
+    displayName TEXT NOT NULL,
+    email TEXT NOT NULL,
+    createdAt TEXT NOT NULL DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS idx_join_request_trip ON tripJoinRequestEntity(tripId);
+
+getPendingRequestsForTrip:
+SELECT * FROM tripJoinRequestEntity WHERE tripId = ? ORDER BY createdAt DESC;
+
+insertOrReplaceJoinRequest:
+INSERT OR REPLACE INTO tripJoinRequestEntity(id, tripId, requesterUserId, displayName, email, createdAt)
+VALUES (?, ?, ?, ?, ?, ?);
+
+deleteJoinRequest:
+DELETE FROM tripJoinRequestEntity WHERE id = ?;
+
+deleteJoinRequestsForTrip:
+DELETE FROM tripJoinRequestEntity WHERE tripId = ?;
+
+getJoinRequestIdsForTrip:
+SELECT id FROM tripJoinRequestEntity WHERE tripId = ?;

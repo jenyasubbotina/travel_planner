@@ -1,0 +1,37 @@
+CREATE TABLE attachmentEntity (
+    id TEXT NOT NULL PRIMARY KEY,
+    tripId TEXT NOT NULL,
+    expenseId TEXT,
+    pointId TEXT,
+    uploadedBy TEXT NOT NULL,
+    fileName TEXT NOT NULL,
+    fileSize INTEGER NOT NULL,
+    mimeType TEXT NOT NULL,
+    s3Key TEXT NOT NULL,
+    createdAt TEXT NOT NULL
+);
+
+getAttachmentsForTrip:
+SELECT * FROM attachmentEntity WHERE tripId = ?;
+
+getTripLevelAttachmentsForTrip:
+SELECT * FROM attachmentEntity WHERE tripId = ? AND expenseId IS NULL AND pointId IS NULL ORDER BY createdAt DESC;
+
+getAttachmentsForExpense:
+SELECT * FROM attachmentEntity WHERE expenseId = ?;
+
+getAttachmentsForPoint:
+SELECT * FROM attachmentEntity WHERE pointId = ? ORDER BY createdAt DESC;
+
+getAttachmentIdsByTrip:
+SELECT id FROM attachmentEntity WHERE tripId = ?;
+
+insertOrReplaceAttachment:
+INSERT OR REPLACE INTO attachmentEntity(id, tripId, expenseId, pointId, uploadedBy, fileName, fileSize, mimeType, s3Key, createdAt)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+deleteAttachment:
+DELETE FROM attachmentEntity WHERE id = ?;
+
+deleteAttachmentsForTrip:
+DELETE FROM attachmentEntity WHERE tripId = ?;

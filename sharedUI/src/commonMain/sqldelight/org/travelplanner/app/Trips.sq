@@ -1,42 +1,40 @@
 CREATE TABLE tripEntity (
-    id INTEGER PRIMARY KEY,
+    id TEXT NOT NULL PRIMARY KEY,
     title TEXT NOT NULL,
-    destination TEXT NOT NULL,
-    startDate INTEGER NOT NULL,
-    endDate INTEGER NOT NULL,
+    destination TEXT NOT NULL DEFAULT '',
+    startDate TEXT,
+    endDate TEXT,
     currency TEXT NOT NULL,
-    totalBudget REAL NOT NULL,
-    spentAmount REAL NOT NULL DEFAULT 0.0,
+    totalBudget TEXT NOT NULL DEFAULT '0',
+    spentAmount TEXT NOT NULL DEFAULT '0',
     description TEXT,
     participantCount INTEGER NOT NULL DEFAULT 1,
     status TEXT NOT NULL DEFAULT 'PLANNED',
     joinCode TEXT,
     ownerUserId TEXT NOT NULL,
     imageUrl TEXT,
-    filesJson TEXT
+    filesJson TEXT,
+    baseCurrency TEXT NOT NULL DEFAULT 'USD',
+    version INTEGER NOT NULL DEFAULT 0,
+    createdBy TEXT NOT NULL DEFAULT '',
+    createdAt TEXT,
+    updatedAt TEXT
 );
 
--- Update this query to include imageUrl
 insertTripWithId:
-INSERT OR REPLACE INTO tripEntity(id, title, destination, startDate, endDate, currency, totalBudget, description, participantCount, status, joinCode, ownerUserId, imageUrl, filesJson)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+INSERT OR REPLACE INTO tripEntity(id, title, destination, startDate, endDate, currency, totalBudget, spentAmount, description, participantCount, status, joinCode, ownerUserId, imageUrl, filesJson, baseCurrency, version, createdBy, createdAt, updatedAt)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
--- Select all trips ordered by start date
 getAllTrips:
-SELECT * FROM tripEntity ORDER BY startDate ASC;
+SELECT * FROM tripEntity ORDER BY createdAt DESC;
 
--- Search trips by title or destination
 searchTrips:
 SELECT * FROM tripEntity
 WHERE title LIKE ('%' || :query || '%') OR destination LIKE ('%' || :query || '%')
-ORDER BY startDate ASC;
+ORDER BY createdAt DESC;
 
 getTripById:
 SELECT * FROM tripEntity WHERE id = ?;
-
-insertTrip:
-INSERT INTO tripEntity(title, destination, startDate, endDate, currency, totalBudget, description, participantCount, status, joinCode, ownerUserId)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 updateTripStatusLocal:
 UPDATE tripEntity SET status = ? WHERE id = ?;
@@ -44,11 +42,14 @@ UPDATE tripEntity SET status = ? WHERE id = ?;
 updateTripBudgetLocal:
 UPDATE tripEntity SET totalBudget = ? WHERE id = ?;
 
+updateTripVersionLocal:
+UPDATE tripEntity SET version = ?, updatedAt = ? WHERE id = ?;
+
+updateTripImageUrlLocal:
+UPDATE tripEntity SET imageUrl = ? WHERE id = ?;
+
 updateJoinCode:
 UPDATE tripEntity SET joinCode = ? WHERE id = ?;
-
-updateTripFilesJson:
-UPDATE tripEntity SET filesJson = ? WHERE id = ?;
 
 deleteTripLocal:
 DELETE FROM tripEntity WHERE id = ?;
@@ -56,12 +57,9 @@ DELETE FROM tripEntity WHERE id = ?;
 deleteTrip:
 DELETE FROM tripEntity WHERE id = ?;
 
--- Aggregations: These reference tables in other files (Expenses.sq, Participants.sq).
--- SQLDelight allows cross-file references automatically.
-
 updateTripSpentAmount:
 UPDATE tripEntity
-SET spentAmount = COALESCE((SELECT SUM(amount) FROM tripExpenseEntity WHERE tripId = :tripId AND category != 'PAYMENT'), 0.0)
+SET spentAmount = :spentAmount
 WHERE id = :tripId;
 
 updateTripParticipantCount:
