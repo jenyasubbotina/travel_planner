@@ -16,8 +16,18 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Comment
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Flight
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.Payments
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.Place
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Divider
@@ -31,15 +41,21 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.travelplanner.app.core.TripUtils
-import org.travelplanner.app.features.tripDetails.more.parseColor
+import org.travelplanner.app.features.profile.ui.GradientAvatar
+import org.travelplanner.app.features.profile.ui.avatarInitials
 
 @Composable
 fun HistoryCard(item: HistoryItemUiModel) {
     var isExpanded by remember { mutableStateOf(false) }
+
+    val (entityIcon, actionTint) = remember(item.entityType, item.actionType) {
+        iconFor(item.entityType) to tintFor(item.actionType)
+    }
 
     Card(
         shape = RoundedCornerShape(16.dp),
@@ -62,22 +78,30 @@ fun HistoryCard(item: HistoryItemUiModel) {
                     .animateContentSize(),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier =
-                        Modifier
-                            .size(40.dp)
-                            .background(Color(parseColor(item.avatarColor)), CircleShape),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text =
-                            item.userName
-                                .firstOrNull()
-                                ?.toString()
-                                ?.uppercase() ?: "?",
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
+                Box(modifier = Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+                    GradientAvatar(
+                        seed = item.userId + item.userName,
+                        initials = avatarInitials(item.userName),
+                        avatarUrl = item.avatarUrl,
+                        size = 40.dp,
+                        fontSize = 16.sp,
+                        showBorder = false,
                     )
+                    Box(
+                        modifier =
+                            Modifier
+                                .size(18.dp)
+                                .background(actionTint, CircleShape)
+                                .align(Alignment.BottomEnd),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = entityIcon,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(12.dp),
+                        )
+                    }
                 }
 
                 Spacer(Modifier.width(12.dp))
@@ -142,4 +166,32 @@ fun HistoryCard(item: HistoryItemUiModel) {
             }
         }
     }
+}
+
+private fun iconFor(entityType: String): ImageVector = when (entityType) {
+    "EXPENSE" -> Icons.Default.Payments
+    "EVENT" -> Icons.Default.Place
+    "TRIP" -> Icons.Default.Flight
+    "CHECKLIST_ITEM" -> Icons.Default.CheckCircle
+    "PARTICIPANT" -> Icons.Default.Person
+    "JOIN_REQUEST" -> Icons.Default.PersonAdd
+    "LINK" -> Icons.Default.Link
+    "COMMENT" -> Icons.Default.Comment
+    "ATTACHMENT" -> Icons.Default.AttachFile
+    else -> Icons.Default.Edit
+}
+
+private fun tintFor(actionType: String): Color = when (actionType) {
+    "CREATE", "JOIN", "COMPLETE", "APPROVE_JOIN" -> Color(0xFF10B981)
+    "DELETE", "UNCOMPLETE", "DENY_JOIN", "REJECT_PENDING_UPDATE" -> Color(0xFFEF4444)
+    "UPDATE",
+    "CHANGE_ROLE",
+    "INVITE",
+    "REQUEST_JOIN",
+    "STORE_PENDING_UPDATE",
+    "REGENERATE_JOIN_CODE",
+    "REORDER_ITINERARY",
+    "ARCHIVE",
+    -> Color(0xFF3B82F6)
+    else -> Color(0xFF9CA3AF)
 }

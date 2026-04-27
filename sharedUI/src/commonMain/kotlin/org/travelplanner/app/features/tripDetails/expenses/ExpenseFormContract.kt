@@ -77,4 +77,6 @@ sealed interface ExpenseFormIntent : UiIntent {
 
 sealed interface ExpenseFormEffect : UiEffect {
     data object SaveSuccess : ExpenseFormEffect
+    data object SaveQueuedForApproval : ExpenseFormEffect
+    data object SaveBlockedAnotherPending : ExpenseFormEffect
 }

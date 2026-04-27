@@ -35,12 +35,15 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -51,29 +54,32 @@ import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import cafe.adriel.voyager.core.model.rememberNavigatorScreenModel
 import cafe.adriel.voyager.koin.getScreenModel
-import cafe.adriel.voyager.koin.koinNavigatorScreenModel
 import cafe.adriel.voyager.navigator.LocalNavigator
 import cafe.adriel.voyager.navigator.currentOrThrow
 import cafe.adriel.voyager.navigator.tab.Tab
 import cafe.adriel.voyager.navigator.tab.TabOptions
-import kotlinx.serialization.json.Json
+import kotlinx.coroutines.launch
+import org.koin.core.context.GlobalContext
 import org.koin.core.parameter.parametersOf
 import org.travelplanner.app.DSEmptyStateCard
-import org.travelplanner.app.core.PendingExpenseUpdateDto
 import org.travelplanner.app.core.TripUtils
+import org.travelplanner.app.core.TripUtils.isoToEpochMillis
+import org.travelplanner.app.core.formatRussianDateTime
 import org.travelplanner.app.domain.Expense
 import org.travelplanner.app.features.tripDetails.expenses.details.ExpenseDetailsScreen
-import org.travelplanner.app.features.tripDetails.history.ui.ConflictDetail
 import org.travelplanner.app.features.tripDetails.history.ui.ExpenseConflictScreen
-import org.travelplanner.app.features.tripDetails.history.ui.ExpenseConflictState
+import org.travelplanner.app.features.tripDetails.history.ui.ExpenseConflictUi
+import org.travelplanner.app.features.tripDetails.history.ui.ExpenseMergePicker
+import org.travelplanner.app.features.tripDetails.history.ui.MergeRow
 import org.travelplanner.app.features.tripDetails.route.ui.getCategoryEmoji
 import org.travelplanner.app.theme.DSTextChip
 import org.travelplanner.app.theme.DSTextInput
 import kotlin.time.Clock
 
 data class ExpensesTab(
-    private val tripId: Long,
+    private val tripId: String,
 ) : Tab {
     override val options: TabOptions
         @Composable
@@ -87,17 +93,27 @@ data class ExpensesTab(
     override fun Content() {
         val parentNavigator = LocalNavigator.currentOrThrow.parent!!
         val listScreenModel =
-            parentNavigator.koinNavigatorScreenModel<ExpensesScreenModel> { parametersOf(tripId) }
+            parentNavigator.rememberNavigatorScreenModel<ExpensesScreenModel>(tag = tripId) {
+                GlobalContext.get().get<ExpensesScreenModel> { parametersOf(tripId) }
+            }
 
         val listState by listScreenModel.state.collectAsState()
         val formScreenModel = getScreenModel<ExpenseFormScreenModel> { parametersOf(tripId) }
 
         var isAddSheetVisible by remember { mutableStateOf(false) }
 
-        var conflictedExpense by remember { mutableStateOf<Expense?>(null) }
-        var conflictStateData by remember { mutableStateOf<ExpenseConflictState?>(null) }
+        var conflictTarget by remember { mutableStateOf<ConflictTarget?>(null) }
+        var mergeTarget by remember { mutableStateOf<ConflictTarget?>(null) }
+
+        val snackbarHostState = remember { SnackbarHostState() }
+        val scope = rememberCoroutineScope()
+
+        val showSnackbar: (String) -> Unit = { message ->
+            scope.launch { snackbarHostState.showSnackbar(message) }
+        }
 
         Scaffold(
+            snackbarHost = { SnackbarHost(snackbarHostState) },
             floatingActionButton = {
                 FloatingActionButton(
                     onClick = {
@@ -205,69 +221,31 @@ data class ExpensesTab(
                     expenses = listState.expenses,
                     currency = listState.currency,
                     onExpenseClick = { expense ->
-                        if (expense.pendingUpdateJson != null) {
-                            if (!listState.isOwner) {
-                                return@ExpensesList
-                            }
-
-                            try {
-                                val json =
-                                    Json {
-                                        ignoreUnknownKeys = true
-                                    }
-
-                                val pendingUpdate =
-                                    json
-                                        .decodeFromString<PendingExpenseUpdateDto>(expense.pendingUpdateJson!!)
-
-                                val proposed = pendingUpdate.proposedExpense
-
-                                val participants = listState.participants
-
-                                fun getUserName(id: String): String =
-                                    participants.find { it.userId == id }?.name
-                                        ?: "Неизвестный"
-
-                                val proposedSplitsText =
-                                    proposed.splits.joinToString("\n") { split ->
-                                        "${getUserName(split.userId)}: ${listState.currency}${split.amount.toInt()}"
-                                    }
-
-                                conflictStateData =
-                                    ExpenseConflictState(
-                                        expenseId = expense.remoteId?.take(5) ?: "",
-                                        conflictDateStr = TripUtils.formatDateTime(pendingUpdate.timestamp),
-                                        title = expense.title,
-                                        sum =
-                                            ConflictDetail(
-                                                baseValue = "${listState.currency}${expense.amount.toInt()}",
-                                                remoteValue = "${listState.currency}${proposed.amount.toInt()}",
+                        val pendingJson = expense.pendingUpdateJson
+                        if (pendingJson != null) {
+                            val resolved =
+                                resolvePayloads(
+                                    expense = expense,
+                                    pendingJson = pendingJson,
+                                    currentUserId = listState.currentUserId,
+                                    participants = listState.participants,
+                                )
+                            if (resolved != null) {
+                                conflictTarget =
+                                    ConflictTarget(
+                                        expense = expense,
+                                        payloads = resolved,
+                                        ui =
+                                            resolved.toUi(
+                                                expense = expense,
+                                                participants = listState.participants,
+                                                currency = listState.currency,
+                                                formatIso = ::formatRussianDateTime,
                                             ),
-                                        category =
-                                            ConflictDetail(
-                                                baseValue = getCategoryName(expense.category),
-                                                remoteValue = getCategoryName(proposed.category),
-                                            ),
-                                        description =
-                                            ConflictDetail(
-                                                baseValue = expense.title,
-                                                remoteValue = proposed.title,
-                                            ),
-                                        payer =
-                                            ConflictDetail(
-                                                baseValue = expense.payerName,
-                                                remoteValue = getUserName(proposed.payerUserId),
-                                            ),
-                                        split =
-                                            ConflictDetail(
-                                                baseValue = "Текущее",
-                                                remoteValue = proposedSplitsText,
-                                            ),
-                                        remoteUserName = pendingUpdate.editorName,
+                                        isCreator =
+                                            listState.currentUserId != null &&
+                                                listState.currentUserId == expense.creatorUserId,
                                     )
-                                conflictedExpense = expense
-                            } catch (e: Exception) {
-                                e.printStackTrace()
                             }
                         } else {
                             parentNavigator.push(ExpenseDetailsScreen(expense.id, tripId))
@@ -285,48 +263,123 @@ data class ExpensesTab(
                     ExpenseFormSheet(
                         screenModel = formScreenModel,
                         onDismiss = { isAddSheetVisible = false },
-                        onSuccess = { isAddSheetVisible = false },
+                        onSuccess = { message ->
+                            isAddSheetVisible = false
+                            if (message != null) showSnackbar(message)
+                        },
                     )
                 }
             }
 
-            if (conflictStateData != null && conflictedExpense != null) {
+            val activeConflict = conflictTarget
+            if (activeConflict != null) {
                 ModalBottomSheet(
-                    onDismissRequest = { conflictStateData = null },
+                    onDismissRequest = { conflictTarget = null },
                     containerColor = Color.Transparent,
                     dragHandle = null,
                 ) {
+                    val expenseRemoteId = activeConflict.expense.remoteId.orEmpty()
+
+                    val notCreatorMessage = "Только создатель расхода может принять решение"
+
+                    fun runIfCreator(action: () -> Unit) {
+                        if (activeConflict.isCreator) {
+                            action()
+                        } else {
+                            showSnackbar(notCreatorMessage)
+                        }
+                    }
                     ExpenseConflictScreen(
-                        state = conflictStateData!!,
-                        onAcceptProposed = {
+                        ui = activeConflict.ui,
+                        onSaveMine = {
+                            runIfCreator {
+                                val accept = activeConflict.payloads.mineIsProposer
+                                listScreenModel.handleIntent(
+                                    ExpensesIntent.ResolveConflict(
+                                        tripId,
+                                        expenseRemoteId,
+                                        accept = accept,
+                                    ),
+                                )
+                                conflictTarget = null
+                            }
+                        },
+                        onSaveTheirs = {
+                            runIfCreator {
+                                val accept = !activeConflict.payloads.mineIsProposer
+                                listScreenModel.handleIntent(
+                                    ExpensesIntent.ResolveConflict(
+                                        tripId,
+                                        expenseRemoteId,
+                                        accept = accept,
+                                    ),
+                                )
+                                conflictTarget = null
+                            }
+                        },
+                        onMerge = {
+                            runIfCreator {
+                                mergeTarget = activeConflict
+                                conflictTarget = null
+                            }
+                        },
+                        onRevert = {
+                            runIfCreator {
+                                listScreenModel.handleIntent(
+                                    ExpensesIntent.RevertConflict(tripId, expenseRemoteId),
+                                )
+                                conflictTarget = null
+                            }
+                        },
+                        onCancel = { conflictTarget = null },
+                    )
+                }
+            }
+
+            val activeMerge = mergeTarget
+            if (activeMerge != null) {
+                ModalBottomSheet(
+                    onDismissRequest = { mergeTarget = null },
+                    containerColor = Color.Transparent,
+                    dragHandle = null,
+                ) {
+                    val rows: List<MergeRow> =
+                        activeMerge.payloads.toMergeRows(
+                            participants = listState.participants,
+                            currency = listState.currency,
+                        )
+                    val expenseRemoteId = activeMerge.expense.remoteId.orEmpty()
+                    ExpenseMergePicker(
+                        rows = rows,
+                        onApply = { choices ->
+                            if (!activeMerge.isCreator) {
+                                showSnackbar("Только создатель расхода может принять решение")
+                                mergeTarget = null
+                                return@ExpenseMergePicker
+                            }
                             listScreenModel.handleIntent(
-                                ExpensesIntent.ResolveConflict(
-                                    tripId,
-                                    conflictedExpense!!.remoteId!!,
-                                    accept = true,
+                                ExpensesIntent.MergeConflict(
+                                    tripId = tripId,
+                                    expenseRemoteId = expenseRemoteId,
+                                    merged = activeMerge.payloads.toMergeRequest(choices),
                                 ),
                             )
-                            conflictStateData = null
+                            mergeTarget = null
                         },
-                        onKeepCurrent = {
-                            listScreenModel.handleIntent(
-                                ExpensesIntent.ResolveConflict(
-                                    tripId,
-                                    conflictedExpense!!.remoteId!!,
-                                    accept = false,
-                                ),
-                            )
-                            conflictStateData = null
-                        },
-                        onCancel = {
-                            conflictStateData = null
-                        },
+                        onCancel = { mergeTarget = null },
                     )
                 }
             }
         }
     }
 }
+
+private data class ConflictTarget(
+    val expense: Expense,
+    val payloads: ResolvedPayloads,
+    val ui: ExpenseConflictUi,
+    val isCreator: Boolean,
+)
 
 @Composable
 fun ExpensesList(
@@ -347,10 +400,8 @@ fun ExpensesList(
 
     val grouped =
         expenses.groupBy {
-            if (Clock.System
-                    .now()
-                    .toEpochMilliseconds() - it.date < 86400000L
-            ) {
+            val dateMillis = isoToEpochMillis(it.date)
+            if (Clock.System.now().toEpochMilliseconds() - dateMillis < 86400000L) {
                 "Сегодня"
             } else {
                 "Вчера"

@@ -60,19 +60,22 @@ import cafe.adriel.voyager.navigator.LocalNavigator
 import cafe.adriel.voyager.navigator.currentOrThrow
 import coil3.compose.AsyncImage
 import org.koin.core.parameter.parametersOf
-import org.travelplanner.app.core.TripUtils.formatDate
+import org.travelplanner.app.core.TripUtils.formatDateIso
 import org.travelplanner.app.core.rememberFileDownloader
+import org.travelplanner.app.core.rememberResolvedImageUrl
 import org.travelplanner.app.features.tripDetails.expenses.ExpenseFormIntent
 import org.travelplanner.app.features.tripDetails.expenses.ExpenseFormScreenModel
 import org.travelplanner.app.features.tripDetails.expenses.ExpenseFormSheet
+import org.travelplanner.app.domain.Participant
+import org.travelplanner.app.features.profile.ui.GradientAvatar
+import org.travelplanner.app.features.profile.ui.avatarInitials
 import org.travelplanner.app.features.tripDetails.expenses.getCategoryEmoji
 import org.travelplanner.app.features.tripDetails.expenses.getCategoryName
-import org.travelplanner.app.features.tripDetails.more.parseColor
 import org.travelplanner.app.theme.DSLoadingOverlay
 
 data class ExpenseDetailsScreen(
     val expenseId: Long,
-    val tripId: Long,
+    val tripId: String,
 ) : Screen {
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
@@ -114,11 +117,11 @@ data class ExpenseDetailsScreen(
                     }
 
                     is ExpenseDetailsUiState.Error -> {
-                        Text("Expense not found")
+                        Text("Расход не найден")
                     }
 
                     is ExpenseDetailsUiState.Success -> {
-                        ExpenseDetailsContent(uiState.details, detailsModel::resolveUrl)
+                        ExpenseDetailsContent(uiState.details)
                     }
 
                     else -> {}
@@ -145,11 +148,11 @@ data class ExpenseDetailsScreen(
 @Composable
 fun ExpenseDetailsContent(
     details: ExpenseFullDetails,
-    resolveUrl: (String?) -> String?,
 ) {
     val expense = details.expense
     val downloadFile = rememberFileDownloader()
     var showDownloadDialog by remember { mutableStateOf(false) }
+    val resolvedReceiptUrl = rememberResolvedImageUrl(expense.imageUrl)
 
     if (showDownloadDialog && expense.imageUrl != null) {
         AlertDialog(
@@ -160,7 +163,7 @@ fun ExpenseDetailsContent(
                 Button(
                     onClick = {
                         showDownloadDialog = false
-                        val url = resolveUrl(expense.imageUrl) ?: return@Button
+                        val url = resolvedReceiptUrl ?: return@Button
                         val ext = expense.imageUrl!!.substringAfterLast(".", "jpg")
                         downloadFile(url, "receipt_${expense.id}.$ext")
                     },
@@ -210,7 +213,7 @@ fun ExpenseDetailsContent(
                     Spacer(Modifier.height(16.dp))
                     Text(
                         text = "${details.currency}${
-                            expense.amount.toInt().toString().reversed().chunked(3)
+                            (expense.amount.toDoubleOrNull()?.toInt() ?: 0).toString().reversed().chunked(3)
                                 .joinToString(" ").reversed()
                         }",
                         fontSize = 36.sp,
@@ -218,7 +221,7 @@ fun ExpenseDetailsContent(
                     )
                     Spacer(Modifier.height(8.dp))
                     val denom = if (details.splits.isNotEmpty()) details.splits.size else 1
-                    val perPerson = expense.amount.toInt() / denom
+                    val perPerson = (expense.amount.toDoubleOrNull()?.toInt() ?: 0) / denom
 
                     Text(
                         text = "$perPerson per person",
@@ -247,7 +250,7 @@ fun ExpenseDetailsContent(
                     Spacer(Modifier.height(12.dp))
                     InfoRow(
                         label = "Дата и время",
-                        value = formatDate(details.expense.date),
+                        value = formatDateIso(details.expense.date),
                         icon = Icons.Default.CalendarToday,
                     )
                 }
@@ -279,7 +282,7 @@ fun ExpenseDetailsContent(
                             contentAlignment = Alignment.Center,
                         ) {
                             AsyncImage(
-                                model = resolveUrl(expense.imageUrl),
+                                model = resolvedReceiptUrl,
                                 contentDescription = "Receipt",
                                 contentScale = ContentScale.Fit,
                                 modifier = Modifier.fillMaxWidth(),
@@ -353,21 +356,16 @@ fun RealSplitCard(details: ExpenseFullDetails) {
             Spacer(Modifier.height(16.dp))
 
             details.splits.forEach { split ->
-                val participant = details.participants.find { it.id == split.participantId }
+                val participant = details.participants.find { it.userId == split.participantId }
                 if (participant != null) {
-                    val initial = participant.name.first().toString()
-                    val color =
-                        Color(parseColor(participant.avatarColor1))
                     val isPaid = split.isPaid
                     val statusText = if (isPaid) "✓ Оплачено" else "Ожидает оплаты"
                     val amountColor = if (isPaid) Color(0xFF00A63E) else Color(0xFFF54900)
 
                     SplitRow(
-                        initial = initial,
-                        color = color,
-                        name = participant.name,
+                        participant = participant,
                         status = statusText,
-                        amount = "${details.currency}${split.amount.toInt()}",
+                        amount = "${details.currency}${split.amount.toDoubleOrNull()?.toInt() ?: 0}",
                         amountColor = amountColor,
                     )
                     Spacer(Modifier.height(12.dp))
@@ -468,9 +466,7 @@ fun InfoRow(
 
 @Composable
 fun SplitRow(
-    initial: String,
-    color: Color,
-    name: String,
+    participant: Participant,
     status: String,
     amount: String,
     amountColor: Color,
@@ -485,18 +481,17 @@ fun SplitRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                modifier =
-                    Modifier
-                        .size(40.dp)
-                        .background(color, CircleShape),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(initial, color = Color.White, fontSize = 16.sp)
-            }
+            GradientAvatar(
+                seed = participant.userId + participant.name,
+                initials = avatarInitials(participant.name),
+                avatarUrl = participant.avatarUrl,
+                size = 40.dp,
+                fontSize = 16.sp,
+                showBorder = false,
+            )
             Spacer(Modifier.width(12.dp))
             Column {
-                Text(name, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                Text(participant.name, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                 Text(status, fontSize = 12.sp, color = Color(0xFF6A7282))
             }
         }

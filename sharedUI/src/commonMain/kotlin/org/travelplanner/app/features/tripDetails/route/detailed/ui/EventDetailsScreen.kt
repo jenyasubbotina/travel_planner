@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.ArrowForwardIos
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.AttachMoney
 import androidx.compose.material.icons.filled.ChatBubbleOutline
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Download
@@ -83,6 +84,9 @@ import org.koin.core.parameter.parametersOf
 import org.travelplanner.app.core.FilePicker
 import org.travelplanner.app.core.ImagePicker
 import org.travelplanner.app.core.rememberClipboardManager
+import org.travelplanner.app.core.rememberResolvedImageUrl
+import org.travelplanner.app.features.profile.ui.GradientAvatar
+import org.travelplanner.app.features.profile.ui.avatarInitials
 import org.travelplanner.app.features.tripDetails.more.ShareInviteCodeDialog
 import org.travelplanner.app.features.tripDetails.route.ui.EventEditorDialog
 import org.travelplanner.app.theme.DSButton
@@ -90,7 +94,7 @@ import org.travelplanner.app.theme.DSLoadingOverlay
 import org.travelplanner.app.theme.DSTextInput
 
 class EventDetailsScreen(
-    val tripId: Long,
+    val tripId: String,
     val eventId: Long,
 ) : Screen {
     @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -128,6 +132,7 @@ class EventDetailsScreen(
                 data = state.editData,
                 onIntent = screenModel::handleIntent,
                 participants = state.participants,
+                currency = state.currency,
             )
         }
 
@@ -235,8 +240,9 @@ class EventDetailsScreen(
                                     modifier = Modifier.fillMaxWidth().height(240.dp),
                                 ) { page ->
                                     if (page < photos.size) {
+                                        val resolved = rememberResolvedImageUrl(photos[page].url)
                                         AsyncImage(
-                                            model = screenModel.resolveUrl(photos[page].url),
+                                            model = resolved,
                                             contentDescription = photos[page].name,
                                             contentScale = ContentScale.Crop,
                                             modifier = Modifier.fillMaxSize(),
@@ -359,19 +365,14 @@ class EventDetailsScreen(
                                                     ).padding(horizontal = 12.dp, vertical = 6.dp),
                                             verticalAlignment = Alignment.CenterVertically,
                                         ) {
-                                            Box(
-                                                Modifier
-                                                    .size(24.dp)
-                                                    .background(Color(0xFF3B82F6), CircleShape),
-                                                contentAlignment = Alignment.Center,
-                                            ) {
-                                                Text(
-                                                    participant.name.take(1).uppercase(),
-                                                    color = Color.White,
-                                                    fontSize = 11.sp,
-                                                    fontWeight = FontWeight.Medium,
-                                                )
-                                            }
+                                            GradientAvatar(
+                                                seed = participant.userId + participant.name,
+                                                initials = avatarInitials(participant.name),
+                                                avatarUrl = participant.avatarUrl,
+                                                size = 24.dp,
+                                                fontSize = 11.sp,
+                                                showBorder = false,
+                                            )
                                             Spacer(Modifier.width(6.dp))
                                             Text(
                                                 participant.name,
@@ -409,12 +410,30 @@ class EventDetailsScreen(
                                 iconTint = Color(0xFF10B981),
                                 iconBg = Color(0xFFD1FAE5),
                             )
+                            val statusLabel = when (ev.status) {
+                                "BOOKED" -> "Забронировано"
+                                "PAID" -> "Оплачено"
+                                "PLANNED" -> "Запланировано"
+                                "CONFIRMED" -> "Подтверждено"
+                                "CANCELLED" -> "Отменено"
+                                else -> null
+                            }
+                            if (statusLabel != null) {
+                                InfoRow(
+                                    Icons.Default.CheckCircle,
+                                    "Статус",
+                                    statusLabel,
+                                    iconTint = Color(0xFF00A63E),
+                                    iconBg = Color(0xFFDCFCE7),
+                                )
+                            }
                         }
                     }
                 }
 
-                val address = ev.address ?: ev.subtitle
-                if (address.isNotBlank()) {
+                val address = ev.address?.takeIf { it.isNotBlank() && it != ev.subtitle }
+                val hasCoords = ev.latitude != 0.0 || ev.longitude != 0.0
+                if (address != null || hasCoords) {
                     item {
                         Card(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
@@ -443,12 +462,12 @@ class EventDetailsScreen(
                                 Spacer(Modifier.width(12.dp))
                                 Column(Modifier.weight(1f)) {
                                     Text(
-                                        "Адрес",
+                                        if (address != null) "Адрес" else "Координаты",
                                         fontSize = 12.sp,
                                         color = Color(0xFF6B7280),
                                     )
                                     Text(
-                                        address,
+                                        address ?: "${ev.latitude}, ${ev.longitude}",
                                         fontSize = 14.sp,
                                         color = Color(0xFF111827),
                                         fontWeight = FontWeight.Medium,
@@ -456,13 +475,18 @@ class EventDetailsScreen(
                                 }
                                 IconButton(
                                     onClick = {
-                                        clipboardManager.copyToClipboard(address)
+                                        val payload = if (hasCoords) {
+                                            "${ev.latitude},${ev.longitude}"
+                                        } else {
+                                            address.orEmpty()
+                                        }
+                                        clipboardManager.copyToClipboard(payload)
                                         copiedAddress = true
                                     },
                                 ) {
                                     Icon(
                                         Icons.Default.ContentCopy,
-                                        contentDescription = "Copy address",
+                                        contentDescription = "Copy coordinates",
                                         tint =
                                             if (copiedAddress) {
                                                 Color(0xFF10B981)
@@ -564,10 +588,9 @@ class EventDetailsScreen(
 
                             state.comments.forEach { comment ->
                                 CommentItem(
-                                    initial = comment.userName.take(1).uppercase(),
+                                    userId = comment.userId,
                                     name = comment.userName,
                                     text = comment.text,
-                                    color = Color(0xFF3B82F6),
                                 )
                                 Spacer(Modifier.height(12.dp))
                             }
@@ -811,10 +834,9 @@ fun LinkRow(
 
 @Composable
 fun CommentItem(
-    initial: String,
+    userId: String,
     name: String,
     text: String,
-    color: Color,
 ) {
     Row(
         Modifier
@@ -822,12 +844,14 @@ fun CommentItem(
             .background(Color(0xFFF9FAFB), RoundedCornerShape(12.dp))
             .padding(12.dp),
     ) {
-        Box(
-            Modifier.size(36.dp).background(color, CircleShape),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(initial, color = Color.White, fontWeight = FontWeight.Medium)
-        }
+        GradientAvatar(
+            seed = userId + name,
+            initials = avatarInitials(name),
+            avatarUrl = null,
+            size = 36.dp,
+            fontSize = 14.sp,
+            showBorder = false,
+        )
         Spacer(Modifier.width(12.dp))
         Column {
             Text(name, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Color(0xFF111827))

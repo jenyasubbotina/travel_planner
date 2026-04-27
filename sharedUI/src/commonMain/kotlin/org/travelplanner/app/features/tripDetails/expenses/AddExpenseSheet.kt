@@ -64,6 +64,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import org.travelplanner.app.core.ImagePicker
+import org.travelplanner.app.core.rememberResolvedImageUrl
 import org.travelplanner.app.domain.Participant
 import org.travelplanner.app.theme.DSButton
 import org.travelplanner.app.theme.DSTextInput
@@ -73,7 +74,7 @@ import org.travelplanner.app.theme.DSTextInput
 fun ExpenseFormSheet(
     screenModel: ExpenseFormScreenModel,
     onDismiss: () -> Unit,
-    onSuccess: () -> Unit,
+    onSuccess: (message: String?) -> Unit,
 ) {
     val state by screenModel.state.collectAsState()
     val scrollState = rememberScrollState()
@@ -81,7 +82,11 @@ fun ExpenseFormSheet(
     LaunchedEffect(Unit) {
         screenModel.effect.collect { effect ->
             when (effect) {
-                is ExpenseFormEffect.SaveSuccess -> onSuccess()
+                is ExpenseFormEffect.SaveSuccess -> onSuccess(null)
+                is ExpenseFormEffect.SaveQueuedForApproval ->
+                    onSuccess("Предложение отправлено создателю на подтверждение")
+                is ExpenseFormEffect.SaveBlockedAnotherPending ->
+                    onSuccess("Другой участник уже предложил изменения. Дождитесь решения создателя.")
             }
         }
     }
@@ -96,10 +101,10 @@ fun ExpenseFormSheet(
                 TextButton(onClick = {
                     screenModel.handleIntent(ExpenseFormIntent.DateChanged(datePickerState.selectedDateMillis))
                     showDatePicker = false
-                }) { Text("OK") }
+                }) { Text("ОК") }
             },
             dismissButton = {
-                TextButton(onClick = { showDatePicker = false }) { Text("Cancel") }
+                TextButton(onClick = { showDatePicker = false }) { Text("Отмена") }
             },
         ) {
             DatePicker(state = datePickerState)
@@ -346,8 +351,9 @@ fun ExpenseFormSheet(
                         }
 
                         state.imageUrl != null -> {
+                            val resolved = rememberResolvedImageUrl(state.imageUrl)
                             AsyncImage(
-                                model = screenModel.resolveUrl(state.imageUrl),
+                                model = resolved,
                                 contentDescription = "Receipt Photo",
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier.fillMaxSize(),

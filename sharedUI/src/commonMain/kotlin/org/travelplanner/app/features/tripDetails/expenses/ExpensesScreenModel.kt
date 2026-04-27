@@ -12,6 +12,7 @@ import kotlinx.coroutines.launch
 import org.travelplanner.app.core.AppUser
 import org.travelplanner.app.core.ReactiveScreenModel
 import org.travelplanner.app.core.UserSession
+import org.travelplanner.app.core.toMoneyDouble
 import org.travelplanner.app.data.ExpenseRepository
 import org.travelplanner.app.data.ParticipantRepository
 import org.travelplanner.app.data.TripRepository
@@ -21,7 +22,7 @@ import org.travelplanner.app.domain.Participant
 import org.travelplanner.app.domain.Trip
 
 class ExpensesScreenModel(
-    private val tripId: Long,
+    private val tripId: String,
     private val expenseRepository: ExpenseRepository,
     private val participantRepository: ParticipantRepository,
     private val tripRepository: TripRepository,
@@ -64,11 +65,11 @@ class ExpensesScreenModel(
 
             val validExpenses =
                 allEntries.filter { it.category != expenseRepository.CATEGORY_PAYMENT }
-            val realTotal = validExpenses.sumOf { it.amount }
+            val realTotal = validExpenses.sumOf { it.amount.toMoneyDouble() }
 
             val myLocalId =
                 currentUser?.let { user ->
-                    participants.find { it.userId == user.id.toString() }?.id
+                    participants.find { it.userId == user.id }?.id
                 }
 
             val realUserShare =
@@ -78,9 +79,10 @@ class ExpensesScreenModel(
                     validExpenses.sumOf { expense ->
                         val expenseSplits = allSplits.filter { it.expenseId == expense.id }
                         if (expenseSplits.isNotEmpty()) {
-                            expenseSplits.find { it.participantId == myLocalId }?.amount ?: 0.0
+                            val myUserId = currentUser?.id
+                            expenseSplits.find { it.participantId == myUserId }?.amount?.toMoneyDouble() ?: 0.0
                         } else {
-                            if (participants.isNotEmpty()) expense.amount / participants.size else 0.0
+                            if (participants.isNotEmpty()) expense.amount.toMoneyDouble() / participants.size else 0.0
                         }
                     }
                 }
@@ -93,12 +95,13 @@ class ExpensesScreenModel(
                     matchesSearch && matchesCategory
                 }
 
-            val isOwner = bundle.trip?.ownerUserId == currentUser?.id?.toString()
+            val isOwner = bundle.trip?.ownerUserId == currentUser?.id
 
             ExpensesState(
                 expenses = displayedExpenses,
                 participants = participants,
                 isOwner = isOwner,
+                currentUserId = currentUser?.id,
                 totalAmount = realTotal,
                 userShare = realUserShare,
                 searchQuery = query,
@@ -131,6 +134,25 @@ class ExpensesScreenModel(
                         intent.tripId,
                         intent.expenseRemoteId,
                         intent.accept,
+                    )
+                }
+            }
+
+            is ExpensesIntent.MergeConflict -> {
+                screenModelScope.launch {
+                    expenseRepository.mergeConflictOnline(
+                        intent.tripId,
+                        intent.expenseRemoteId,
+                        intent.merged,
+                    )
+                }
+            }
+
+            is ExpensesIntent.RevertConflict -> {
+                screenModelScope.launch {
+                    expenseRepository.revertConflictOnline(
+                        intent.tripId,
+                        intent.expenseRemoteId,
                     )
                 }
             }

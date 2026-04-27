@@ -9,6 +9,8 @@ import kotlinx.coroutines.launch
 import org.travelplanner.app.core.AppUser
 import org.travelplanner.app.core.ReactiveScreenModel
 import org.travelplanner.app.core.UserSession
+import org.travelplanner.app.core.toEpochMillis
+import org.travelplanner.app.core.toMoneyDouble
 import org.travelplanner.app.data.ExpenseRepository
 import org.travelplanner.app.data.ParticipantRepository
 import org.travelplanner.app.data.TripRepository
@@ -19,7 +21,7 @@ import kotlin.math.abs
 import kotlin.math.round
 
 class BalanceScreenModel(
-    private val tripId: Long,
+    private val tripId: String,
     private val expenseRepository: ExpenseRepository,
     private val participantRepository: ParticipantRepository,
     private val userSession: UserSession,
@@ -92,21 +94,23 @@ class BalanceScreenModel(
                     ?: return
 
             if (isRealSpend) {
-                participantSpend[payer.id] = (participantSpend[payer.id] ?: 0.0) + expense.amount
+                participantSpend[payer.id] = (participantSpend[payer.id] ?: 0.0) + expense.amount.toMoneyDouble()
             }
 
             val expenseSplits = allSplits.filter { it.expenseId == expense.id }
 
             if (expenseSplits.isNotEmpty()) {
                 expenseSplits.forEach { split ->
-                    if (split.participantId != payer.id) {
-                        netBalanceMap[payer.id] = (netBalanceMap[payer.id] ?: 0.0) + split.amount
-                        netBalanceMap[split.participantId] =
-                            (netBalanceMap[split.participantId] ?: 0.0) - split.amount
+                    val splitParticipant = participants.find { it.userId == split.participantId }
+                    val splitParticipantId = splitParticipant?.id ?: return@forEach
+                    if (splitParticipantId != payer.id) {
+                        netBalanceMap[payer.id] = (netBalanceMap[payer.id] ?: 0.0) + split.amount.toMoneyDouble()
+                        netBalanceMap[splitParticipantId] =
+                            (netBalanceMap[splitParticipantId] ?: 0.0) - split.amount.toMoneyDouble()
                     }
                 }
             } else if (isRealSpend) {
-                val share = expense.amount / participants.size
+                val share = expense.amount.toMoneyDouble() / participants.size
                 participants.forEach { p ->
                     if (p.id != payer.id) {
                         netBalanceMap[payer.id] = (netBalanceMap[payer.id] ?: 0.0) + share
@@ -144,9 +148,9 @@ class BalanceScreenModel(
             suggestedPayments.add(
                 SuggestedPayment(
                     fromId = debtorId,
-                    fromName = participants.find { it.id == debtorId }?.name ?: "Unknown",
+                    fromName = participants.find { it.id == debtorId }?.name ?: "Неизвестный",
                     toId = creditorId,
-                    toName = participants.find { it.id == creditorId }?.name ?: "Unknown",
+                    toName = participants.find { it.id == creditorId }?.name ?: "Неизвестный",
                     amount = (round(amount * 100.0) / 100.0),
                 ),
             )
@@ -162,7 +166,7 @@ class BalanceScreenModel(
         }
 
         val myId =
-            currentUser?.let { user -> participants.find { it.userId == user.id.toString() }?.id }
+            currentUser?.let { user -> participants.find { it.userId == user.id }?.id }
 
         val myRelevantPayments =
             if (myId != null) {
@@ -175,8 +179,9 @@ class BalanceScreenModel(
             participants.map { p ->
                 ParticipantBalanceItem(
                     id = p.id,
-                    name = if (p.id == myId) "${p.name} (You)" else p.name,
-                    avatarColor = p.avatarColor1,
+                    userId = p.userId,
+                    name = p.name,
+                    avatarUrl = p.avatarUrl,
                     spent = participantSpend[p.id] ?: 0.0,
                     netBalance = netBalanceMap[p.id] ?: 0.0,
                     isCurrentUser = p.id == myId,
@@ -188,8 +193,8 @@ class BalanceScreenModel(
                 PaymentHistoryItem(
                     id = it.id,
                     title = it.title,
-                    date = it.date,
-                    amount = it.amount,
+                    date = it.date.toEpochMillis(),
+                    amount = it.amount.toMoneyDouble(),
                 )
             }
 

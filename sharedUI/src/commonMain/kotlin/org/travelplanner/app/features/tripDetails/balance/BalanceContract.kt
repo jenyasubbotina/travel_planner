@@ -15,8 +15,9 @@ data class BalanceUiState(
 
 data class ParticipantBalanceItem(
     val id: Long,
+    val userId: String,
     val name: String,
-    val avatarColor: String,
+    val avatarUrl: String?,
     val spent: Double,
     val netBalance: Double,
     val isCurrentUser: Boolean,

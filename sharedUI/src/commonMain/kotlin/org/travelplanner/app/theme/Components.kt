@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.KeyboardArrowRight
@@ -38,6 +39,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -215,6 +217,8 @@ fun DSTextInput(
     minLines: Int = 1,
     enabled: Boolean = true,
     readOnly: Boolean = false,
+    visualTransformation: VisualTransformation = VisualTransformation.None,
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
 ) {
     Column(modifier = modifier) {
         if (label != null) {
@@ -239,6 +243,8 @@ fun DSTextInput(
             isError = isError,
             enabled = enabled,
             readOnly = readOnly,
+            visualTransformation = visualTransformation,
+            keyboardOptions = keyboardOptions,
             modifier = Modifier.fillMaxWidth(),
             colors =
                 OutlinedTextFieldDefaults.colors(
@@ -474,16 +480,26 @@ fun DSTextChip(
     text: String,
     isActive: Boolean,
     onClick: () -> Unit,
+    leadingIcon: ImageVector? = null,
 ) {
     Surface(
         color = if (isActive) AppColors.Primary else AppColors.ChipBgInactive,
         shape = CircleShape,
         modifier = Modifier.height(32.dp).clickable { onClick() },
     ) {
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier.padding(horizontal = 16.dp),
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.padding(horizontal = 16.dp).fillMaxHeight(),
         ) {
+            if (leadingIcon != null) {
+                Icon(
+                    imageVector = leadingIcon,
+                    contentDescription = null,
+                    tint = if (isActive) Color.White else AppColors.ChipTextInactive,
+                    modifier = Modifier.size(14.dp),
+                )
+            }
             Text(
                 text = text,
                 style = AppTypography.bodyMedium,

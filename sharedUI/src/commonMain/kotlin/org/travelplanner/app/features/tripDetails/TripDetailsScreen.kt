@@ -1,12 +1,17 @@
 package org.travelplanner.app.features.tripDetails
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
@@ -23,7 +28,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import cafe.adriel.voyager.core.annotation.InternalVoyagerApi
 import cafe.adriel.voyager.core.screen.Screen
 import cafe.adriel.voyager.koin.getScreenModel
@@ -36,12 +43,13 @@ import cafe.adriel.voyager.navigator.tab.TabNavigator
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import org.koin.core.parameter.parametersOf
-import org.travelplanner.app.DebugUserSwitcher
 import org.travelplanner.app.core.GatewayConfigManager
+import org.travelplanner.app.core.TripUtils
 import org.travelplanner.app.core.UserSession
 import org.travelplanner.app.data.TripDetailsEffect
 import org.travelplanner.app.data.TripDetailsIntent
 import org.travelplanner.app.data.TripDetailsScreenModel
+import org.travelplanner.app.features.profile.ui.ProfileAvatar
 import org.travelplanner.app.features.tripDetails.balance.BalanceTab
 import org.travelplanner.app.features.tripDetails.expenses.ExpensesTab
 import org.travelplanner.app.features.tripDetails.more.MoreTab
@@ -50,7 +58,7 @@ import org.travelplanner.app.features.tripDetails.summary.TripSummaryTab
 import org.travelplanner.app.features.tripList.TripListScreen
 
 data class TripDetailsScreen(
-    val tripId: Long,
+    val tripId: String,
 ) : Screen {
     @OptIn(ExperimentalMaterial3Api::class, InternalVoyagerApi::class)
     @Composable
@@ -102,14 +110,40 @@ data class TripDetailsScreen(
             Scaffold(
                 topBar = {
                     TopAppBar(
-                        title = { Text("Поездка") },
+                        title = {
+                            val trip = tripSyncState.trip
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(
+                                    text = trip?.title?.takeIf { it.isNotBlank() } ?: "Поездка",
+                                    fontSize = 18.sp,
+                                    lineHeight = 20.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color(0xFF0A0A0A),
+                                )
+                                val dateRange = TripUtils.formatDateRangeRu(trip?.startDate, trip?.endDate)
+                                if (dateRange.isNotBlank()) {
+                                    Text(
+                                        text = dateRange,
+                                        fontSize = 12.sp,
+                                        lineHeight = 14.sp,
+                                        color = Color(0xFF6A7282),
+                                    )
+                                }
+                            }
+                        },
+                        navigationIcon = {
+                            IconButton(onClick = { navigator.pop() }) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "К поездкам",
+                                )
+                            }
+                        },
                         colors =
                             TopAppBarDefaults.topAppBarColors(
                                 containerColor = Color.Transparent,
                             ),
                         actions = {
-                            DebugUserSwitcher(userSession, isLoginScreen = false)
-                            Spacer(Modifier.width(8.dp))
                             SyncIndicator(
                                 networkState = networkState,
                                 syncState = tripSyncState.syncState,
@@ -117,6 +151,8 @@ data class TripDetailsScreen(
                                 currentConfig = gatewayConfig,
                                 onConfigSave = { scope.launch { gatewayManager.updateConfig(it) } },
                             ) { screenModel.handleIntent(TripDetailsIntent.PerformSync) }
+                            Spacer(Modifier.width(8.dp))
+                            ProfileAvatar(userSession = userSession, navigator = navigator)
                             Spacer(Modifier.width(8.dp))
                         },
                     )

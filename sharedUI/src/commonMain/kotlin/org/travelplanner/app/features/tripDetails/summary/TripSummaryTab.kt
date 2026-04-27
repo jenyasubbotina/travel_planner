@@ -45,18 +45,24 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import cafe.adriel.voyager.koin.koinNavigatorScreenModel
+import cafe.adriel.voyager.core.model.rememberNavigatorScreenModel
 import cafe.adriel.voyager.navigator.LocalNavigator
 import cafe.adriel.voyager.navigator.currentOrThrow
 import cafe.adriel.voyager.navigator.tab.LocalTabNavigator
 import cafe.adriel.voyager.navigator.tab.Tab
 import cafe.adriel.voyager.navigator.tab.TabOptions
+import org.koin.core.context.GlobalContext
 import org.koin.core.parameter.parametersOf
-import org.travelplanner.app.core.TripUtils.toReadableDate
+import org.travelplanner.app.core.TripUtils.formatDateRangeRu
+import org.travelplanner.app.core.TripUtils.formatMoney
+import org.travelplanner.app.core.TripUtils.isoToEpochMillis
+import org.travelplanner.app.core.TripUtils.pluralizeDays
+import org.travelplanner.app.core.TripUtils.tripDayCount
 import org.travelplanner.app.features.tripDetails.EditBudgetDialog
 import org.travelplanner.app.features.tripDetails.expenses.ExpensesTab
+import org.travelplanner.app.features.profile.ui.GradientAvatar
+import org.travelplanner.app.features.profile.ui.avatarInitials
 import org.travelplanner.app.features.tripDetails.more.MoreTab
-import org.travelplanner.app.features.tripDetails.more.parseColor
 import org.travelplanner.app.features.tripDetails.route.ui.ItineraryTab
 import org.travelplanner.app.theme.DSNotificationBanner
 import org.travelplanner.app.theme.DSProgressBar
@@ -65,7 +71,7 @@ import kotlin.math.floor
 import kotlin.time.Clock
 
 data class TripSummaryTab(
-    private val tripId: Long,
+    private val tripId: String,
 ) : Tab {
     override val options: TabOptions
         @Composable
@@ -78,7 +84,9 @@ data class TripSummaryTab(
     override fun Content() {
         val parentNavigator = LocalNavigator.currentOrThrow.parent!!
         val screenModel =
-            parentNavigator.koinNavigatorScreenModel<TripSummaryScreenModel> { parametersOf(tripId) }
+            parentNavigator.rememberNavigatorScreenModel<TripSummaryScreenModel>(tag = tripId) {
+                GlobalContext.get().get<TripSummaryScreenModel> { parametersOf(tripId) }
+            }
 
         val state by screenModel.state.collectAsState()
 
@@ -109,7 +117,7 @@ data class TripSummaryTab(
         )
         if (showBudgetDialog && state.trip != null) {
             EditBudgetDialog(
-                currentBudget = state.trip!!.totalBudget,
+                currentBudget = state.trip!!.totalBudget.toDoubleOrNull() ?: 0.0,
                 onDismiss = { showBudgetDialog = false },
                 onConfirm = { newBudget ->
                     screenModel.handleIntent(TripSummaryIntent.UpdateBudget(newBudget))
@@ -135,62 +143,73 @@ fun TripSummaryContent(
     val expenses = state.expenses
     val events = state.events
 
-    val totalSpent = expenses.filter { it.category != "PAYMENT" }.sumOf { it.amount }
-    val remainingBudget = t.totalBudget - totalSpent
+    val budget = t.totalBudget.toDoubleOrNull() ?: 0.0
+    val totalSpent = expenses.filter { it.category != "PAYMENT" }.sumOf { it.amount.toDoubleOrNull() ?: 0.0 }
+    val remainingBudget = budget - totalSpent
     val progress =
-        if (t.totalBudget > 0) (totalSpent / t.totalBudget).toFloat().coerceIn(0f, 1f) else 0f
+        if (budget > 0) (totalSpent / budget).toFloat().coerceIn(0f, 1f) else 0f
 
     val currentMillis = Clock.System.now().toEpochMilliseconds()
     val msPerDay = 1000.0 * 60 * 60 * 24
 
-    val tripTotalDays = maxOf(1, ceil((t.endDate - t.startDate) / msPerDay).toInt())
+    val startMillis = isoToEpochMillis(t.startDate)
+    val endMillis = isoToEpochMillis(t.endDate)
+
+    val tripTotalDays = maxOf(1, ceil((endMillis - startMillis) / msPerDay).toInt())
 
     val daysSpent =
         when {
-            currentMillis < t.startDate -> 0
-            currentMillis > t.endDate -> tripTotalDays
-            else -> maxOf(1, ceil((currentMillis - t.startDate) / msPerDay).toInt())
+            currentMillis < startMillis -> 0
+            currentMillis > endMillis -> tripTotalDays
+            else -> maxOf(1, ceil((currentMillis - startMillis) / msPerDay).toInt())
         }
 
     val actualAvgPerDay = if (daysSpent > 0) totalSpent / daysSpent else 0.0
 
-    val daysToStart = ceil((t.startDate - currentMillis) / msPerDay).toInt()
+    val daysToStart = ceil((startMillis - currentMillis) / msPerDay).toInt()
 
     val statusText =
         when {
-            currentMillis < t.startDate -> if (daysToStart == 1) "Завтра" else "Через $daysToStart дн."
-            currentMillis > t.endDate -> "Завершена"
+            currentMillis < startMillis ->
+                if (daysToStart == 1) "Завтра" else "Через $daysToStart ${pluralizeDays(daysToStart)}"
+            currentMillis > endMillis -> "Завершена"
             else -> "В поездке"
         }
 
     val forecastText =
         when {
             remainingBudget < 0 -> {
-                "Бюджет превышен на ${t.currency}${(-remainingBudget).toInt()}!"
+                "Бюджет превышен на ${formatMoney(-remainingBudget, t.currency)}!"
             }
 
-            currentMillis > t.endDate -> {
-                "Завершена • В среднем вы тратили ${t.currency}${actualAvgPerDay.toInt()} в день"
+            currentMillis > endMillis -> {
+                "Завершена • В среднем вы тратили ${formatMoney(actualAvgPerDay, t.currency)} в день"
             }
 
             totalSpent == 0.0 -> {
-                val targetDaily = t.totalBudget / tripTotalDays
-                "План трат: ${t.currency}${targetDaily.toInt()} в день"
+                val targetDaily = budget / tripTotalDays
+                "План трат: ${formatMoney(targetDaily, t.currency)} в день"
+            }
+
+            currentMillis < startMillis -> {
+                val avgAcrossTrip = totalSpent / tripTotalDays
+                "В среднем ${formatMoney(avgAcrossTrip, t.currency)}/день • Прогноз в норме"
             }
 
             else -> {
                 val daysLeftInTrip = tripTotalDays - daysSpent
                 val projectedTotal = totalSpent + (actualAvgPerDay * daysLeftInTrip)
 
-                if (projectedTotal <= t.totalBudget) {
-                    "Траты ${t.currency}${actualAvgPerDay.toInt()}/день • Прогноз в норме"
+                if (projectedTotal <= budget) {
+                    "Траты ${formatMoney(actualAvgPerDay, t.currency)}/день • Прогноз в норме"
                 } else {
                     val daysBudgetWillLast = floor(remainingBudget / actualAvgPerDay).toInt()
 
                     if (daysBudgetWillLast == 0) {
-                        "Траты ${t.currency}${actualAvgPerDay.toInt()}/день • Денег не хватит до конца дня!"
+                        "Траты ${formatMoney(actualAvgPerDay, t.currency)}/день • Денег не хватит до конца дня!"
                     } else {
-                        "Траты ${t.currency}${actualAvgPerDay.toInt()}/день • Бюджета хватит на $daysBudgetWillLast дн."
+                        "Траты ${formatMoney(actualAvgPerDay, t.currency)}/день • " +
+                            "Бюджета хватит на $daysBudgetWillLast ${pluralizeDays(daysBudgetWillLast)}"
                     }
                 }
             }
@@ -215,9 +234,12 @@ fun TripSummaryContent(
                             Brush.linearGradient(
                                 colors = listOf(Color(0xFF155DFC), Color(0xFF9810FA)),
                             ),
-                    ).padding(20.dp),
+                    ),
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -243,61 +265,26 @@ fun TripSummaryContent(
                         tint = Color.White.copy(alpha = 0.9f),
                         modifier = Modifier.size(16.dp),
                     )
+                    val daysCount = tripDayCount(t.startDate, t.endDate)
                     Text(
-                        "${t.startDate.toReadableDate()} — ${t.endDate.toReadableDate()}",
+                        "${formatDateRangeRu(t.startDate, t.endDate)} ($daysCount ${pluralizeDays(daysCount)})",
                         color = Color.White,
                         fontSize = 14.sp,
                     )
                 }
 
-                Box(
-                    modifier =
-                        Modifier
-                            .background(Color.White.copy(alpha = 0.2f), RoundedCornerShape(24.dp))
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
-                ) {
-                    Text(
-                        statusText,
-                        color = Color.White,
-                        fontSize = 14.sp,
-                    )
-                }
-
-                Text("Участники (${participants.size})", color = Color.White, fontSize = 14.sp)
+                Text("Участники", color = Color.White, fontSize = 14.sp)
 
                 Row(horizontalArrangement = Arrangement.spacedBy((-8).dp)) {
                     participants.take(5).forEach { person ->
-                        Box(
-                            modifier =
-                                Modifier
-                                    .size(32.dp)
-                                    .background(
-                                        brush =
-                                            Brush.linearGradient(
-                                                colors =
-                                                    listOf(
-                                                        Color(parseColor(person.avatarColor1)),
-                                                        Color(parseColor(person.avatarColor2)),
-                                                    ),
-                                            ),
-                                        shape = CircleShape,
-                                    ).border(1.5.dp, Color.White, CircleShape),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            val initials =
-                                person.name
-                                    .split(" ")
-                                    .mapNotNull { it.firstOrNull() }
-                                    .joinToString("")
-                                    .take(2)
-                                    .uppercase()
-                            Text(
-                                initials,
-                                color = Color.White,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                            )
-                        }
+                        GradientAvatar(
+                            seed = person.userId + person.name,
+                            initials = avatarInitials(person.name),
+                            avatarUrl = person.avatarUrl,
+                            size = 32.dp,
+                            fontSize = 10.sp,
+                            showBorder = true,
+                        )
                     }
 
                     Box(
@@ -318,6 +305,21 @@ fun TripSummaryContent(
                         )
                     }
                 }
+            }
+
+            Box(
+                modifier =
+                    Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(16.dp)
+                        .background(Color.White.copy(alpha = 0.2f), RoundedCornerShape(24.dp))
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+            ) {
+                Text(
+                    statusText,
+                    color = Color.White,
+                    fontSize = 14.sp,
+                )
             }
         }
 
@@ -349,12 +351,12 @@ fun TripSummaryContent(
                 ) {
                     Column {
                         Text(
-                            "${t.currency}${totalSpent.toInt()}",
+                            formatMoney(totalSpent, t.currency),
                             fontSize = 30.sp,
                             fontWeight = FontWeight.Normal,
                         )
                         Text(
-                            "из ${t.currency}${t.totalBudget.toInt()}",
+                            "из ${formatMoney(budget, t.currency)}",
                             fontSize = 14.sp,
                             color = Color(0xFF6A7282),
                         )
@@ -362,7 +364,7 @@ fun TripSummaryContent(
                     Column(horizontalAlignment = Alignment.End) {
                         Text("Осталось", fontSize = 14.sp, color = Color(0xFF6A7282))
                         Text(
-                            "${t.currency}${remainingBudget.toInt()}",
+                            formatMoney(remainingBudget, t.currency),
                             fontSize = 20.sp,
                             color =
                                 if (remainingBudget >= 0) {
@@ -472,7 +474,7 @@ fun TripSummaryContent(
                     expenses
                         .filter { it.category != "PAYMENT" }
                         .groupBy { it.category }
-                        .mapValues { entry -> entry.value.sumOf { it.amount } }
+                        .mapValues { entry -> entry.value.sumOf { it.amount.toDoubleOrNull() ?: 0.0 } }
                         .entries
                         .sortedByDescending { it.value }
                         .take(4)
@@ -487,7 +489,7 @@ fun TripSummaryContent(
                         CategoryRow(
                             emoji,
                             name,
-                            "${t.currency}${amount.toInt()}",
+                            formatMoney(amount, t.currency),
                             color,
                             catProgress,
                         )
@@ -546,7 +548,7 @@ fun TripSummaryContent(
         if (remainingBudget < 0) {
             DSNotificationBanner(
                 title = "Внимание",
-                text = "Вы превысили запланированный бюджет на ${t.currency}${(-remainingBudget).toInt()}",
+                text = "Вы превысили запланированный бюджет на ${formatMoney(-remainingBudget, t.currency)}",
                 backgroundColor = Color(0xFFFEF2F2),
                 borderColor = Color(0xFFFECACA),
                 contentColor = Color(0xFF991B1B),

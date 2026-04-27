@@ -24,15 +24,13 @@ import org.travelplanner.app.features.tripDetails.history.data.HistoryRepository
 
 class ExpenseDetailsScreenModel(
     private val expenseId: Long,
-    private val tripId: Long,
+    private val tripId: String,
     private val expenseRepository: ExpenseRepository,
     private val participantRepository: ParticipantRepository,
     private val historyRepository: HistoryRepository,
     private val userSession: UserSession,
     private val tripRepository: TripRepository,
 ) : ReactiveScreenModel<ExpenseDetailsUiState, ExpenseDetailsIntent, ExpenseDetailsEffect>() {
-    fun resolveUrl(path: String?): String? = expenseRepository.resolveUrl(path)
-
     private val _isDeleted = MutableStateFlow(false)
 
     override val state: StateFlow<ExpenseDetailsUiState> =
@@ -64,7 +62,7 @@ class ExpenseDetailsScreenModel(
                 }
 
                 else -> {
-                    val myUserId = currentUser?.id?.toString()
+                    val myUserId = currentUser?.id
                     val expenseLogs =
                         logs
                             .filter { it.entityId == expense.remoteId && it.entityType == "EXPENSE" }
@@ -74,7 +72,7 @@ class ExpenseDetailsScreenModel(
                         expenseLogs.mapIndexed { index, log ->
                             val user = participants.find { it.userId == log.userId }
                             val actorName =
-                                if (log.userId == myUserId) "Вы" else (user?.name ?: "Unknown")
+                                if (log.userId == myUserId) "Вы" else (user?.name ?: "Неизвестный")
 
                             ExpenseHistoryUiModel(
                                 title = ExpenseLogParser.parseActionTitle(log),

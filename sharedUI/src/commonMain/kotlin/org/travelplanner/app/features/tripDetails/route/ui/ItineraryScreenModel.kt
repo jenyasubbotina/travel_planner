@@ -9,6 +9,11 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.travelplanner.app.core.ReactiveScreenModel
+import org.travelplanner.app.core.ReverseGeocoder
+import org.travelplanner.app.core.TripUtils
+import org.travelplanner.app.core.formatHoursDuration
+import org.travelplanner.app.core.stripDurationSuffix
+import org.travelplanner.app.core.toEpochMillis
 import org.travelplanner.app.data.EventRepository
 import org.travelplanner.app.data.ParticipantRepository
 import org.travelplanner.app.data.TripRepository
@@ -25,10 +30,11 @@ private data class LocalUiState(
 )
 
 class ItineraryScreenModel(
-    private val tripId: Long,
+    private val tripId: String,
     private val tripRepository: TripRepository,
     private val eventsRepository: EventRepository,
     private val participantRepository: ParticipantRepository,
+    private val reverseGeocoder: ReverseGeocoder,
 ) : ReactiveScreenModel<ItineraryState, ItineraryIntent, ItineraryEffect>() {
     private val _localUiState = MutableStateFlow(LocalUiState())
 
@@ -50,11 +56,20 @@ class ItineraryScreenModel(
                     .filter { it.dayIndex == local.selectedDayIndex }
                     .sortedBy { it.time }
 
+            val dateBasedDayCount = TripUtils.tripDayCount(trip?.startDate, trip?.endDate)
+            val eventBasedDayCount =
+                allEvents.maxOfOrNull { it.dayIndex }?.let { it + 1 } ?: 1
+            val dayCount = maxOf(dateBasedDayCount, eventBasedDayCount)
+
+            val eventsCountByDay = allEvents.groupingBy { it.dayIndex }.eachCount()
+
             ItineraryState(
                 viewMode = local.viewMode,
                 selectedDayIndex = local.selectedDayIndex,
                 events = dayEvents,
-                tripStartDate = trip?.startDate ?: 0L,
+                tripStartDate = trip?.startDate?.toEpochMillis() ?: 0L,
+                dayCount = dayCount,
+                eventsCountByDay = eventsCountByDay,
                 selectedEventId = local.selectedEventId,
                 isEditorVisible = local.isEditorVisible,
                 editorData = local.editorData,
@@ -117,8 +132,12 @@ class ItineraryScreenModel(
                                     } else {
                                         ""
                                     },
+                                duration = stripDurationSuffix(event.duration),
+                                status = event.status,
+                                address = event.address ?: "",
                                 latitude = event.latitude,
                                 longitude = event.longitude,
+                                participantIds = event.participantIds,
                             ),
                     )
                 }
@@ -159,6 +178,18 @@ class ItineraryScreenModel(
                             ),
                     )
                 }
+                screenModelScope.launch {
+                    val resolved = reverseGeocoder.reverseGeocode(action.lat, action.lng) ?: return@launch
+                    _localUiState.update { current ->
+                        if (current.editorData.latitude != action.lat ||
+                            current.editorData.longitude != action.lng
+                        ) {
+                            current
+                        } else {
+                            current.copy(editorData = current.editorData.copy(address = resolved))
+                        }
+                    }
+                }
             }
 
             is EventIntent.SaveEditorChanges -> {
@@ -184,14 +215,14 @@ class ItineraryScreenModel(
                         title = data.title,
                         subtitle = data.subtitle,
                         description = data.description,
-                        duration = "1 ч",
+                        duration = formatHoursDuration(data.duration).ifBlank { "1 ч" },
                         cost = data.cost.toDoubleOrNull() ?: 0.0,
                         actualCost = 0.0,
-                        status = "NONE",
+                        status = data.status,
                         category = "SIGHT",
                         latitude = data.latitude ?: 0.0,
                         longitude = data.longitude ?: 0.0,
-                        address = data.subtitle,
+                        address = data.address.ifBlank { null },
                         links = emptyList(),
                         comments = emptyList(),
                         files = emptyList(),
@@ -209,6 +240,9 @@ class ItineraryScreenModel(
                             subtitle = data.subtitle,
                             description = data.description,
                             cost = data.cost.toDoubleOrNull() ?: 0.0,
+                            duration = formatHoursDuration(data.duration).ifBlank { currentDto.duration },
+                            status = data.status,
+                            address = data.address.ifBlank { null },
                             latitude = data.latitude ?: currentDto.latitude,
                             longitude = data.longitude ?: currentDto.longitude,
                             participantIds = data.participantIds,

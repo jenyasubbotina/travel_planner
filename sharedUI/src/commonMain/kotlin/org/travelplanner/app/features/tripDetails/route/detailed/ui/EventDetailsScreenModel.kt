@@ -5,17 +5,20 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.travelplanner.app.core.ReactiveScreenModel
+import org.travelplanner.app.core.ReverseGeocoder
 import org.travelplanner.app.core.UserSession
+import org.travelplanner.app.core.formatHoursDuration
+import org.travelplanner.app.core.stripDurationSuffix
 import org.travelplanner.app.data.EventRepository
 import org.travelplanner.app.data.ParticipantRepository
 import org.travelplanner.app.data.TripRepository
-import org.travelplanner.app.features.tripDetails.history.ConflictException
-import org.travelplanner.app.features.tripDetails.route.detailed.data.EventCommentDto
-import org.travelplanner.app.features.tripDetails.route.detailed.data.EventLinkDto
+import org.travelplanner.app.data.mimeTypeForFileName
+import org.travelplanner.app.core.VersionConflictException
 import org.travelplanner.app.features.tripDetails.route.detailed.data.toDto
 import org.travelplanner.app.features.tripDetails.route.ui.EventEditData
 import kotlin.time.Clock
@@ -27,16 +30,25 @@ private data class LocalUiState(
 )
 
 class EventDetailsScreenModel(
-    private val tripId: Long,
+    private val tripId: String,
     private val eventId: Long,
     private val eventRepository: EventRepository,
     private val participantRepository: ParticipantRepository,
     private val userSession: UserSession,
     private val tripRepository: TripRepository,
+    private val reverseGeocoder: ReverseGeocoder,
 ) : ReactiveScreenModel<EventDetailsState, EventIntent, EventEffect>() {
-    fun resolveUrl(path: String?): String? = eventRepository.resolveUrl(path)
-
     private val _localUiState = MutableStateFlow(LocalUiState())
+
+    init {
+        screenModelScope.launch {
+            val entity = eventRepository.getEventFlow(eventId).firstOrNull { it != null }
+            val remoteId = entity?.remoteId.orEmpty()
+            if (remoteId.isNotBlank()) {
+                eventRepository.refreshPointFiles(tripId, remoteId)
+            }
+        }
+    }
 
     override val state: StateFlow<EventDetailsState> =
         combine(
@@ -81,12 +93,18 @@ class EventDetailsScreenModel(
                 uploadFile(
                     intent.bytes,
                     "photo_${Clock.System.now().toEpochMilliseconds()}.jpg",
-                    "PHOTO",
+                    mimeType = "image/jpeg",
+                    category = "PHOTO",
                 )
             }
 
             is EventIntent.AddDocument -> {
-                uploadFile(intent.bytes, intent.fileName, "DOCUMENT")
+                uploadFile(
+                    intent.bytes,
+                    intent.fileName,
+                    mimeType = mimeTypeForFileName(intent.fileName),
+                    category = "DOCUMENT",
+                )
             }
 
             is EventIntent.OpenMapPicker -> {
@@ -107,6 +125,18 @@ class EventDetailsScreenModel(
                                 isMapPickerOpen = false,
                             ),
                     )
+                }
+                screenModelScope.launch {
+                    val resolved = reverseGeocoder.reverseGeocode(intent.lat, intent.lng) ?: return@launch
+                    _localUiState.update { current ->
+                        if (current.editData.latitude != intent.lat ||
+                            current.editData.longitude != intent.lng
+                        ) {
+                            current
+                        } else {
+                            current.copy(editData = current.editData.copy(address = resolved))
+                        }
+                    }
                 }
             }
 
@@ -133,6 +163,7 @@ class EventDetailsScreenModel(
                     EventEditData(
                         title = current.title,
                         subtitle = current.subtitle,
+                        address = current.address ?: "",
                         description = current.description ?: "",
                         time = current.time,
                         cost =
@@ -143,6 +174,8 @@ class EventDetailsScreenModel(
                             } else {
                                 ""
                             },
+                        duration = stripDurationSuffix(current.duration),
+                        status = current.status,
                         latitude = current.latitude,
                         longitude = current.longitude,
                         participantIds = current.participantIds,
@@ -154,18 +187,17 @@ class EventDetailsScreenModel(
     private fun uploadFile(
         bytes: ByteArray,
         fileName: String,
-        type: String,
+        mimeType: String,
+        category: String,
     ) {
         val entity = state.value.event ?: return
+        val remoteId = entity.remoteId ?: return
         screenModelScope.launch {
-            eventRepository.uploadFileAndAdd(
-                tripId,
-                eventId,
-                entity.toDto(),
-                bytes,
-                fileName,
-                type,
-            )
+            try {
+                eventRepository.uploadPointFile(tripId, remoteId, bytes, fileName, mimeType)
+            } catch (t: Throwable) {
+                t.printStackTrace()
+            }
         }
     }
 
@@ -180,9 +212,12 @@ class EventDetailsScreenModel(
                     currentDto.copy(
                         title = edit.title,
                         subtitle = edit.subtitle,
+                        address = edit.address.ifBlank { null },
                         description = edit.description,
                         time = edit.time,
                         cost = edit.cost.toDoubleOrNull() ?: 0.0,
+                        duration = formatHoursDuration(edit.duration).ifBlank { currentDto.duration },
+                        status = edit.status,
                         latitude = edit.latitude ?: currentDto.latitude,
                         longitude = edit.longitude ?: currentDto.longitude,
                         participantIds = edit.participantIds,
@@ -194,7 +229,7 @@ class EventDetailsScreenModel(
                     updatedDto,
                 )
                 _localUiState.update { it.copy(isEditing = false) }
-            } catch (e: ConflictException) {
+            } catch (e: VersionConflictException) {
                 sendEffect(EventEffect.ShowError("Конфликт данных!"))
             } finally {
                 _localUiState.update { it.copy(isSyncing = false) }
@@ -204,23 +239,14 @@ class EventDetailsScreenModel(
 
     private fun addComment(text: String) {
         val entity = state.value.event ?: return
-        val currentUser = userSession.currentUser.value ?: return
+        val remoteId = entity.remoteId ?: return
         if (text.isBlank()) return
         screenModelScope.launch {
-            val newComment =
-                EventCommentDto(
-                    userId = currentUser.id.toString(),
-                    userName = currentUser.name,
-                    text = text,
-                    timestamp = Clock.System.now().toEpochMilliseconds(),
-                )
-            val dto = entity.toDto()
-            eventRepository.updateEventOnline(
-                tripId,
-                eventId,
-                entity.remoteId ?: "",
-                dto.copy(comments = dto.comments + newComment),
-            )
+            try {
+                eventRepository.addPointComment(tripId, remoteId, text)
+            } catch (t: Throwable) {
+                t.printStackTrace()
+            }
         }
     }
 
@@ -229,15 +255,14 @@ class EventDetailsScreenModel(
         url: String,
     ) {
         val entity = state.value.event ?: return
+        val remoteId = entity.remoteId ?: return
         if (title.isBlank() || url.isBlank()) return
         screenModelScope.launch {
-            val dto = entity.toDto()
-            eventRepository.updateEventOnline(
-                tripId,
-                eventId,
-                entity.remoteId ?: "",
-                dto.copy(links = dto.links + EventLinkDto(title, url)),
-            )
+            try {
+                eventRepository.addPointLink(tripId, remoteId, title, url)
+            } catch (t: Throwable) {
+                t.printStackTrace()
+            }
         }
     }
 

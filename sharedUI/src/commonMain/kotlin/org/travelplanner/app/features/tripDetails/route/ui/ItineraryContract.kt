@@ -15,6 +15,8 @@ data class ItineraryState(
     val selectedDayIndex: Int = 0,
     val events: List<Event> = emptyList(),
     val tripStartDate: Long = System.now().toEpochMilliseconds(),
+    val dayCount: Int = 1,
+    val eventsCountByDay: Map<Int, Int> = emptyMap(),
     val selectedEventId: Long? = null,
     val isEditorVisible: Boolean = false,
     val editorData: EventEditData = EventEditData(),

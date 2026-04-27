@@ -10,13 +10,16 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
@@ -28,6 +31,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -36,6 +40,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -48,9 +53,12 @@ import org.travelplanner.app.theme.DSTextInput
 data class EventEditData(
     val title: String = "",
     val subtitle: String = "",
+    val address: String = "",
     val description: String = "",
     val time: String = "",
     val cost: String = "",
+    val duration: String = "",
+    val status: String = "NONE",
     val latitude: Double? = null,
     val longitude: Double? = null,
     val isMapPickerOpen: Boolean = false,
@@ -65,6 +73,7 @@ fun EventEditorDialog(
     data: EventEditData,
     onIntent: (EventIntent) -> Unit,
     participants: List<Participant> = emptyList(),
+    currency: String = "¥",
 ) {
     Dialog(
         onDismissRequest = { onIntent(EventIntent.CloseEditor) },
@@ -78,13 +87,17 @@ fun EventEditorDialog(
                 modifier =
                     Modifier
                         .fillMaxWidth(0.95f)
+                        .fillMaxHeight(0.92f)
                         .padding(16.dp),
                 shape = RoundedCornerShape(24.dp),
                 colors = CardDefaults.cardColors(containerColor = Color.White),
                 elevation = CardDefaults.cardElevation(8.dp),
             ) {
                 Column(
-                    modifier = Modifier.padding(24.dp),
+                    modifier =
+                        Modifier
+                            .verticalScroll(rememberScrollState())
+                            .padding(24.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
                     Row(
@@ -131,7 +144,7 @@ fun EventEditorDialog(
                                 )
                             },
                             placeholder = "0",
-                            label = "Бюджет (¥)",
+                            label = "Бюджет ($currency)",
                             modifier = Modifier.weight(1f),
                         )
                     }
@@ -155,8 +168,8 @@ fun EventEditorDialog(
                                 },
                             )
                         },
-                        placeholder = "Адрес / Ориентир",
-                        label = "Место (Адрес / Ориентир)",
+                        placeholder = "Район / Ориентир",
+                        label = "Место",
                         modifier = Modifier.fillMaxWidth(),
                     )
 
@@ -177,6 +190,61 @@ fun EventEditorDialog(
                         singleLine = false,
                         minLines = 3,
                     )
+
+                    DSTextInput(
+                        value = data.duration,
+                        onValueChange = { v ->
+                            val cleaned =
+                                v.filter { it.isDigit() || it == '.' || it == ',' }
+                                    .replace(',', '.')
+                                    .let { s ->
+                                        val firstDot = s.indexOf('.')
+                                        if (firstDot < 0) s
+                                        else s.substring(0, firstDot + 1) +
+                                            s.substring(firstDot + 1).replace(".", "")
+                                    }
+                            onIntent(EventIntent.UpdateEditorField { copy(duration = cleaned) })
+                        },
+                        placeholder = "2",
+                        label = "Длительность (ч)",
+                        modifier = Modifier.fillMaxWidth(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    )
+
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            "Статус",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFF374151),
+                        )
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            StatusSegment(
+                                label = "Не указан",
+                                isSelected = data.status == "NONE",
+                                onClick = {
+                                    onIntent(EventIntent.UpdateEditorField { copy(status = "NONE") })
+                                },
+                            )
+                            StatusSegment(
+                                label = "Забронировано",
+                                isSelected = data.status == "BOOKED",
+                                onClick = {
+                                    onIntent(EventIntent.UpdateEditorField { copy(status = "BOOKED") })
+                                },
+                            )
+                            StatusSegment(
+                                label = "Оплачено",
+                                isSelected = data.status == "PAID",
+                                onClick = {
+                                    onIntent(EventIntent.UpdateEditorField { copy(status = "PAID") })
+                                },
+                            )
+                        }
+                    }
 
                     if (participants.isNotEmpty()) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -292,6 +360,16 @@ fun EventEditorDialog(
                         Text(if (data.latitude != null) "Точка на карте установлена" else "Указать точку на карте")
                     }
 
+                    if (data.latitude != null && data.address.isNotBlank()) {
+                        Text(
+                            data.address,
+                            fontSize = 12.sp,
+                            lineHeight = 16.sp,
+                            color = Color(0xFF6B7280),
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                        )
+                    }
+
                     DSButton(
                         text = "Сохранить изменения",
                         onClick = { onIntent(EventIntent.SaveEditorChanges) },
@@ -317,5 +395,35 @@ fun EventEditorDialog(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun StatusSegment(
+    label: String,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+) {
+    val bgColor = if (isSelected) Color(0xFFEFF6FF) else Color(0xFFF3F4F6)
+    val borderColor = if (isSelected) Color(0xFF155DFC) else Color.Transparent
+    val textColor = if (isSelected) Color(0xFF155DFC) else Color(0xFF374151)
+    Box(
+        modifier =
+            Modifier
+                .height(40.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(bgColor)
+                .border(1.dp, borderColor, RoundedCornerShape(20.dp))
+                .clickable(onClick = onClick)
+                .padding(horizontal = 16.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            label,
+            fontSize = 13.sp,
+            color = textColor,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+        )
     }
 }

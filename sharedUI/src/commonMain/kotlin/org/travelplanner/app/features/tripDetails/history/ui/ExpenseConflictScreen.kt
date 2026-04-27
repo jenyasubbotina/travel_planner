@@ -11,11 +11,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.MergeType
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -26,31 +28,61 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import org.travelplanner.app.features.profile.ui.GradientAvatar
+import org.travelplanner.app.features.profile.ui.avatarInitials
 import org.travelplanner.app.theme.DSButton
 import org.travelplanner.app.theme.DSNotificationBanner
 
-data class ConflictDetail(
-    val baseValue: String,
-    val remoteValue: String,
+data class ExpenseSideSnapshot(
+    val amountFormatted: String,
+    val category: String,
+    val description: String,
+    val payerName: String,
+    val splitsText: String,
+    val receiptUrl: String?,
+    val modifiedAt: String,
+    val modifiedByUserId: String,
+    val modifiedByName: String,
 )
 
-data class ExpenseConflictState(
-    val expenseId: String,
-    val conflictDateStr: String,
-    val title: String,
-    val sum: ConflictDetail,
-    val category: ConflictDetail,
-    val description: ConflictDetail,
-    val payer: ConflictDetail,
-    val split: ConflictDetail,
-    val remoteUserName: String,
+data class ExpenseBaseSnapshot(
+    val amountFormatted: String,
+    val category: String,
+    val description: String,
+    val payerName: String,
+    val splitsText: String,
+    val receiptUrl: String?,
 )
+
+data class ExpenseConflictUi(
+    val expenseShortId: String,
+    val title: String,
+    val conflictAtFormatted: String,
+    val mine: ExpenseSideSnapshot,
+    val theirs: ExpenseSideSnapshot,
+    val base: ExpenseBaseSnapshot?,
+)
+
+private val BlueAccent = Color(0xFF155DFC)
+private val BlueAccentBg = Color(0xFFEFF6FF)
+private val PurpleAccent = Color(0xFF9333EA)
+private val PurpleAccentBg = Color(0xFFFAF5FF)
+private val OrangeBg = Color(0xFFFFF7ED)
+private val OrangeBorder = Color(0xFFFFEDD5)
+private val OrangeText = Color(0xFF9A3412)
+private val OrangeIcon = Color(0xFFC2410C)
+private val RedBg = Color(0xFFFEE2E2)
+private val RedText = Color(0xFF991B1B)
+private val SubtleText = Color(0xFF6B7280)
+private val InfoBg = Color(0xFFF3F4F6)
 
 @Composable
 fun ExpenseConflictScreen(
-    state: ExpenseConflictState,
-    onAcceptProposed: () -> Unit,
-    onKeepCurrent: () -> Unit,
+    ui: ExpenseConflictUi,
+    onSaveMine: () -> Unit,
+    onSaveTheirs: () -> Unit,
+    onMerge: () -> Unit,
+    onRevert: () -> Unit,
     onCancel: () -> Unit,
 ) {
     Column(
@@ -58,152 +90,276 @@ fun ExpenseConflictScreen(
             Modifier
                 .fillMaxWidth()
                 .background(Color(0xFFFAFAFA), RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+                .verticalScroll(rememberScrollState())
                 .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         DSNotificationBanner(
-            title = "Запрос на изменение",
-            text = "Участник ${state.remoteUserName} предложил изменения в ваш расход. Вы можете принять их или отклонить.",
-            backgroundColor = Color(0xFFFFF7ED),
-            borderColor = Color(0xFFFFEDD5),
-            contentColor = Color(0xFF9A3412),
-            iconColor = Color(0xFFC2410C),
+            title = "Обнаружен конфликт",
+            text = "Расход был изменён вами и другим участником одновременно. Выберите, какую версию сохранить.",
+            backgroundColor = OrangeBg,
+            borderColor = OrangeBorder,
+            contentColor = OrangeText,
+            iconColor = OrangeIcon,
             icon = Icons.Default.WarningAmber,
         )
 
-        Column(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .background(Color.White, RoundedCornerShape(12.dp))
-                    .padding(16.dp),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("Расход #${state.expenseId}", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                Text(state.conflictDateStr, color = Color.Gray, fontSize = 12.sp)
-            }
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(state.title, color = Color.DarkGray, fontSize = 14.sp)
-        }
+        ExpenseHeaderCard(
+            shortId = ui.expenseShortId,
+            title = ui.title,
+            conflictAt = ui.conflictAtFormatted,
+        )
 
-        Column(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .background(Color.White, RoundedCornerShape(16.dp))
-                    .border(1.dp, Color(0xFFE5E7EB), RoundedCornerShape(16.dp))
-                    .padding(16.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        "Предложенные изменения",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp,
-                        color = Color(0xFF9333EA),
-                    )
-                    Text(
-                        "От: ${state.remoteUserName}",
-                        fontSize = 12.sp,
-                        color = Color(0xFF9333EA).copy(alpha = 0.8f),
-                    )
-                }
-                Box(
-                    modifier = Modifier.size(36.dp).background(Color(0xFF9333EA), CircleShape),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        state.remoteUserName.firstOrNull()?.toString() ?: "?",
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
-            }
+        VersionCard(
+            label = "Ваша версия",
+            modifiedSubtitle = "Изменено ${ui.mine.modifiedAt}",
+            accent = BlueAccent,
+            accentBg = BlueAccentBg,
+            snapshot = ui.mine,
+            base = ui.base,
+            saveButtonText = "Сохранить эту версию",
+            onSave = onSaveMine,
+        )
 
-            Spacer(modifier = Modifier.height(16.dp))
-
-            val sumChanged = state.sum.baseValue != state.sum.remoteValue
-            val catChanged = state.category.baseValue != state.category.remoteValue
-            val descChanged = state.description.baseValue != state.description.remoteValue
-            val payerChanged = state.payer.baseValue != state.payer.remoteValue
-            val splitChanged = state.split.baseValue != state.split.remoteValue
-
-            ConflictRow("Сумма:", state.sum.baseValue, state.sum.remoteValue, sumChanged)
-            ConflictRow(
-                "Категория:",
-                state.category.baseValue,
-                state.category.remoteValue,
-                catChanged,
-            )
-            ConflictRow(
-                "Описание:",
-                state.description.baseValue,
-                state.description.remoteValue,
-                descChanged,
-            )
-            ConflictRow("Оплатил:", state.payer.baseValue, state.payer.remoteValue, payerChanged)
-            ConflictRow("Разделение:", state.split.baseValue, state.split.remoteValue, splitChanged)
-        }
-
-        DSButton(
-            text = "Принять изменения",
-            onClick = onAcceptProposed,
-            modifier = Modifier.fillMaxWidth(),
-            icon = Icons.Default.Check,
+        VersionCard(
+            label = "Версия сервера",
+            modifiedSubtitle = "Изменено ${ui.theirs.modifiedByName}, ${ui.theirs.modifiedAt}",
+            accent = PurpleAccent,
+            accentBg = PurpleAccentBg,
+            snapshot = ui.theirs,
+            base = ui.base,
+            saveButtonText = "Сохранить эту версию",
+            onSave = onSaveTheirs,
         )
 
         DSButton(
-            text = "Отклонить (Оставить как было)",
-            onClick = onKeepCurrent,
+            text = "Объединить изменения",
+            onClick = onMerge,
             modifier = Modifier.fillMaxWidth(),
-            backgroundColor = Color(0xFFFEE2E2),
-            contentColor = Color(0xFF991B1B),
+            backgroundColor = InfoBg,
+            contentColor = Color(0xFF111827),
+            icon = Icons.Default.MergeType,
+        )
+
+        DSButton(
+            text = "Отменить оба изменения",
+            onClick = onRevert,
+            modifier = Modifier.fillMaxWidth(),
+            backgroundColor = RedBg,
+            contentColor = RedText,
             icon = Icons.Default.Close,
         )
+
+        TipFooter()
 
         TextButton(
             onClick = onCancel,
             modifier = Modifier.align(Alignment.CenterHorizontally),
         ) {
-            Text("Закрыть", color = Color.Gray)
+            Text("Закрыть", color = SubtleText)
         }
     }
 }
 
 @Composable
-fun ConflictRow(
-    label: String,
-    base: String,
-    proposed: String,
-    isChanged: Boolean,
+private fun ExpenseHeaderCard(
+    shortId: String,
+    title: String,
+    conflictAt: String,
 ) {
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
-        Text(label, color = Color.Gray, fontSize = 12.sp)
+    Column(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .background(Color.White, RoundedCornerShape(12.dp))
+                .padding(16.dp),
+    ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                text = base,
-                color = if (isChanged) Color.Gray else Color.Black,
+            Text("Расход #$shortId", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            Text("Конфликт от $conflictAt", color = SubtleText, fontSize = 12.sp)
+        }
+        Spacer(Modifier.height(4.dp))
+        Text(title, color = Color.DarkGray, fontSize = 14.sp)
+    }
+}
+
+@Composable
+private fun VersionCard(
+    label: String,
+    modifiedSubtitle: String,
+    accent: Color,
+    accentBg: Color,
+    snapshot: ExpenseSideSnapshot,
+    base: ExpenseBaseSnapshot?,
+    saveButtonText: String,
+    onSave: () -> Unit,
+) {
+    Column(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .background(Color.White, RoundedCornerShape(16.dp))
+                .border(1.dp, accent.copy(alpha = 0.18f), RoundedCornerShape(16.dp))
+                .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(label, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = accent)
+                Text(modifiedSubtitle, fontSize = 12.sp, color = accent.copy(alpha = 0.8f))
+            }
+            GradientAvatar(
+                seed = snapshot.modifiedByUserId + snapshot.modifiedByName,
+                initials = avatarInitials(snapshot.modifiedByName),
+                avatarUrl = null,
+                size = 36.dp,
                 fontSize = 14.sp,
-                modifier = Modifier.weight(1f),
+                showBorder = false,
             )
-            if (isChanged) {
-                Text("→", color = Color(0xFF9333EA), modifier = Modifier.padding(horizontal = 8.dp))
-                Text(
-                    text = proposed,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF9333EA),
-                    fontSize = 14.sp,
-                    modifier = Modifier.weight(1f),
-                )
+        }
+
+        InfoRow("Сумма:", snapshot.amountFormatted, valueBold = true)
+        InfoRow("Категория:", snapshot.category)
+        InfoRow("Описание:", snapshot.description, valueBold = true)
+        InfoRow("Оплатил:", snapshot.payerName, valueBold = true)
+        InfoRow("Разделить:", snapshot.splitsText)
+
+        val diff = base?.let { buildDiffLines(it, snapshot) }.orEmpty()
+        if (diff.isNotEmpty()) {
+            DiffSummaryChip(accent = accent, accentBg = accentBg, lines = diff)
+        }
+
+        DSButton(
+            text = saveButtonText,
+            onClick = onSave,
+            modifier = Modifier.fillMaxWidth(),
+            backgroundColor = accent,
+            contentColor = Color.White,
+            icon = Icons.Default.Check,
+        )
+    }
+}
+
+@Composable
+private fun InfoRow(
+    label: String,
+    value: String,
+    valueBold: Boolean = false,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.Top,
+    ) {
+        Text(label, color = SubtleText, fontSize = 14.sp)
+        Text(
+            value,
+            fontSize = 14.sp,
+            fontWeight = if (valueBold) FontWeight.SemiBold else FontWeight.Normal,
+            modifier = Modifier.weight(1f).padding(start = 8.dp),
+            textAlign = androidx.compose.ui.text.style.TextAlign.End,
+        )
+    }
+}
+
+@Composable
+private fun DiffSummaryChip(
+    accent: Color,
+    accentBg: Color,
+    lines: List<String>,
+) {
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .background(accentBg, RoundedCornerShape(12.dp))
+                .padding(12.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Box(
+            modifier =
+                Modifier
+                    .size(20.dp)
+                    .background(accent, RoundedCornerShape(50)),
+            contentAlignment = Alignment.Center,
+        ) {
+            androidx.compose.material3.Icon(
+                Icons.Default.Check,
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(14.dp),
+            )
+        }
+        Spacer(Modifier.size(8.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text("Изменения:", color = accent, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+            lines.forEach {
+                Text(it, color = accent.copy(alpha = 0.85f), fontSize = 13.sp)
             }
         }
     }
 }
+
+@Composable
+private fun TipFooter() {
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .background(Color(0xFFFEF9C3), RoundedCornerShape(12.dp))
+                .padding(12.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Text("💡", fontSize = 18.sp)
+        Spacer(Modifier.size(8.dp))
+        Column {
+            Text(
+                "Совет:",
+                color = Color(0xFF854D0E),
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 13.sp,
+            )
+            Text(
+                "При объединении изменений будет создана новая версия с учётом обеих правок. " +
+                    "Рекомендуется связаться с другим участником для уточнения деталей.",
+                color = Color(0xFF854D0E),
+                fontSize = 13.sp,
+            )
+        }
+    }
+}
+
+private fun buildDiffLines(
+    base: ExpenseBaseSnapshot,
+    side: ExpenseSideSnapshot,
+): List<String> =
+    buildList {
+        if (base.amountFormatted != side.amountFormatted) {
+            add("Сумма: ${base.amountFormatted} → ${side.amountFormatted}")
+        }
+        if (base.category != side.category) {
+            add("Категория: ${base.category} → ${side.category}")
+        }
+        if (base.description != side.description) {
+            add("Описание: «${base.description}» → «${side.description}»")
+        }
+        if (base.payerName != side.payerName) {
+            add("Плательщик: ${base.payerName} → ${side.payerName}")
+        }
+        if (base.splitsText != side.splitsText) {
+            add("Разделение изменено")
+        }
+        if ((base.receiptUrl ?: "") != (side.receiptUrl ?: "")) {
+            if (base.receiptUrl == null && side.receiptUrl != null) {
+                add("Добавлен чек")
+            } else if (base.receiptUrl != null && side.receiptUrl == null) {
+                add("Чек удалён")
+            } else {
+                add("Чек обновлён")
+            }
+        }
+    }

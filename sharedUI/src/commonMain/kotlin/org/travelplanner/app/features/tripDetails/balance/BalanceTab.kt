@@ -46,14 +46,16 @@ import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import cafe.adriel.voyager.koin.koinNavigatorScreenModel
+import cafe.adriel.voyager.core.model.rememberNavigatorScreenModel
 import cafe.adriel.voyager.navigator.LocalNavigator
 import cafe.adriel.voyager.navigator.currentOrThrow
 import cafe.adriel.voyager.navigator.tab.Tab
 import cafe.adriel.voyager.navigator.tab.TabOptions
+import org.koin.core.context.GlobalContext
 import org.koin.core.parameter.parametersOf
 import org.travelplanner.app.core.TripUtils.formatDate
-import org.travelplanner.app.features.tripDetails.more.parseColor
+import org.travelplanner.app.features.profile.ui.GradientAvatar
+import org.travelplanner.app.features.profile.ui.avatarInitials
 import org.travelplanner.app.theme.DSNotificationBanner
 import kotlin.math.abs
 
@@ -71,7 +73,7 @@ val LightBlueBorder = Color(0xFFBEDBFF)
 val LightBlueText = Color(0xFF1C398E)
 
 data class BalanceTab(
-    private val tripId: Long,
+    private val tripId: String,
 ) : Tab {
     override val options: TabOptions
         @Composable
@@ -84,7 +86,9 @@ data class BalanceTab(
     override fun Content() {
         val parentNavigator = LocalNavigator.currentOrThrow.parent!!
         val screenModel =
-            parentNavigator.koinNavigatorScreenModel<BalanceScreenModel> { parametersOf(tripId) }
+            parentNavigator.rememberNavigatorScreenModel<BalanceScreenModel>(tag = tripId) {
+                GlobalContext.get().get<BalanceScreenModel> { parametersOf(tripId) }
+            }
 
         val state by screenModel.state.collectAsState()
 
@@ -368,19 +372,18 @@ fun ParticipantsCard(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier =
-                                Modifier
-                                    .size(40.dp)
-                                    .background(Color(parseColor(person.avatarColor)), CircleShape),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(person.name.take(1), color = Color.White, fontSize = 16.sp)
-                        }
+                        GradientAvatar(
+                            seed = person.userId + person.name,
+                            initials = avatarInitials(person.name),
+                            avatarUrl = person.avatarUrl,
+                            size = 40.dp,
+                            fontSize = 16.sp,
+                            showBorder = false,
+                        )
                         Spacer(Modifier.width(12.dp))
                         Column {
                             Text(
-                                if (person.isCurrentUser) "Вы" else person.name,
+                                if (person.isCurrentUser) "${person.name} (Вы)" else person.name,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Medium,
                             )
@@ -436,10 +439,14 @@ fun PaymentActionCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier.size(32.dp).background(BlueAction, CircleShape),
-                        contentAlignment = Alignment.Center,
-                    ) { Text(payment.fromName.take(1), color = Color.White, fontSize = 12.sp) }
+                    GradientAvatar(
+                        seed = payment.fromId.toString() + payment.fromName,
+                        initials = avatarInitials(payment.fromName),
+                        avatarUrl = null,
+                        size = 32.dp,
+                        fontSize = 12.sp,
+                        showBorder = false,
+                    )
 
                     Icon(
                         Icons.Default.ArrowForward,
@@ -448,10 +455,14 @@ fun PaymentActionCard(
                         modifier = Modifier.padding(horizontal = 8.dp).size(16.dp),
                     )
 
-                    Box(
-                        modifier = Modifier.size(32.dp).background(GreenStart, CircleShape),
-                        contentAlignment = Alignment.Center,
-                    ) { Text(payment.toName.take(1), color = Color.White, fontSize = 12.sp) }
+                    GradientAvatar(
+                        seed = payment.toId.toString() + payment.toName,
+                        initials = avatarInitials(payment.toName),
+                        avatarUrl = null,
+                        size = 32.dp,
+                        fontSize = 12.sp,
+                        showBorder = false,
+                    )
 
                     Spacer(Modifier.width(12.dp))
 

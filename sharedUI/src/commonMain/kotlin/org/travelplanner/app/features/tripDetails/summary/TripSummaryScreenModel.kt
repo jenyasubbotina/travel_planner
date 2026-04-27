@@ -8,13 +8,14 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.travelplanner.app.core.ReactiveScreenModel
+import org.travelplanner.app.core.toMoneyString
 import org.travelplanner.app.data.EventRepository
 import org.travelplanner.app.data.ExpenseRepository
 import org.travelplanner.app.data.ParticipantRepository
 import org.travelplanner.app.data.TripRepository
 
 class TripSummaryScreenModel(
-    private val tripId: Long,
+    private val tripId: String,
     private val tripRepository: TripRepository,
     private val eventsRepository: EventRepository,
     private val participantRepository: ParticipantRepository,
@@ -39,7 +40,7 @@ class TripSummaryScreenModel(
         when (intent) {
             is TripSummaryIntent.UpdateBudget -> {
                 screenModelScope.launch {
-                    tripRepository.changeTripBudget(tripId, intent.newBudget)
+                    tripRepository.changeTripBudget(tripId, intent.newBudget.toMoneyString())
                 }
             }
         }
@@ -60,7 +61,7 @@ fun getCategoryUiData(category: String): Triple<String, String, Color> =
             Triple("🚇", "Транспорт", Color(0xFFAD46FF))
         }
 
-        "ENTERTAINMENT" -> {
+        "FUN", "ENTERTAINMENT" -> {
             Triple("🎭", "Развлечения", Color(0xFFF6339A))
         }
 
@@ -68,15 +69,15 @@ fun getCategoryUiData(category: String): Triple<String, String, Color> =
             Triple("🛍️", "Покупки", Color(0xFF00C950))
         }
 
+        "OTHER" -> {
+            Triple("📦", "Другое", Color(0xFF6A7282))
+        }
+
         "PAYMENT" -> {
             Triple("💸", "Переводы", Color(0xFF6A7282))
         }
 
         else -> {
-            Triple(
-                "🛒",
-                category.lowercase().replaceFirstChar { it.uppercase() },
-                Color(0xFF6A7282),
-            )
+            Triple("🛒", "Прочее", Color(0xFF6A7282))
         }
     }

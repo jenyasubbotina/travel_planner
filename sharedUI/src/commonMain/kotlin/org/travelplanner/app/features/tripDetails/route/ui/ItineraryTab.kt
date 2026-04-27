@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -34,7 +35,9 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -50,20 +53,21 @@ import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import cafe.adriel.voyager.koin.koinNavigatorScreenModel
+import cafe.adriel.voyager.core.model.rememberNavigatorScreenModel
 import cafe.adriel.voyager.navigator.LocalNavigator
 import cafe.adriel.voyager.navigator.currentOrThrow
 import cafe.adriel.voyager.navigator.tab.Tab
 import cafe.adriel.voyager.navigator.tab.TabOptions
+import org.koin.core.context.GlobalContext
 import org.koin.core.parameter.parametersOf
 import org.travelplanner.app.DSEmptyStateCard
-import org.travelplanner.app.core.TripUtils.toReadableDate
+import org.travelplanner.app.core.TripUtils.toReadableDateRu
 import org.travelplanner.app.domain.Event
 import org.travelplanner.app.features.tripDetails.route.detailed.ui.EventDetailsScreen
 import org.travelplanner.app.theme.DSButton
 
 data class ItineraryTab(
-    private val tripId: Long,
+    private val tripId: String,
 ) : Tab {
     override val options: TabOptions
         @Composable get() {
@@ -75,7 +79,9 @@ data class ItineraryTab(
     override fun Content() {
         val parentNavigator = LocalNavigator.currentOrThrow.parent!!
         val screenModel =
-            parentNavigator.koinNavigatorScreenModel<ItineraryScreenModel> { parametersOf(tripId) }
+            parentNavigator.rememberNavigatorScreenModel<ItineraryScreenModel>(tag = tripId) {
+                GlobalContext.get().get<ItineraryScreenModel> { parametersOf(tripId) }
+            }
 
         val state by screenModel.state.collectAsState()
 
@@ -83,8 +89,21 @@ data class ItineraryTab(
 
         val mainNavigator = tabNavigator.parent
 
+        Scaffold(
+            containerColor = Color(0xFFF9FAFB),
+            floatingActionButton = {
+                FloatingActionButton(
+                    onClick = { screenModel.handleIntent(ItineraryIntent.CreateNewEvent) },
+                    containerColor = Color(0xFF155DFC),
+                    contentColor = Color.White,
+                    shape = CircleShape,
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = "Добавить место")
+                }
+            },
+        ) { scaffoldPadding ->
         Column(
-            modifier = Modifier.fillMaxSize().background(Color(0xFFF9FAFB)),
+            modifier = Modifier.fillMaxSize().padding(scaffoldPadding).background(Color(0xFFF9FAFB)),
         ) {
             Column(
                 modifier =
@@ -124,10 +143,11 @@ data class ItineraryTab(
                     contentPadding = PaddingValues(horizontal = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    items(5) { index ->
+                    items(state.dayCount) { index ->
                         DayChip(
                             dayIndex = index,
                             startDate = state.tripStartDate,
+                            count = state.eventsCountByDay[index] ?: 0,
                             isSelected = state.selectedDayIndex == index,
                             onClick = { screenModel.handleIntent(ItineraryIntent.SelectDay(index)) },
                         )
@@ -166,6 +186,7 @@ data class ItineraryTab(
                 }
             }
         }
+        }
 
         if (state.isEditorVisible) {
             EventEditorDialog(
@@ -174,6 +195,7 @@ data class ItineraryTab(
                     screenModel.handleIntent(ItineraryIntent.EditorAction(intent))
                 },
                 participants = state.participants,
+                currency = state.currency,
             )
         }
     }
@@ -217,6 +239,7 @@ fun ViewModeButton(
 fun DayChip(
     dayIndex: Int,
     startDate: Long,
+    count: Int,
     isSelected: Boolean,
     onClick: () -> Unit,
 ) {
@@ -226,28 +249,36 @@ fun DayChip(
     val dateTextColor =
         if (isSelected) Color.White.copy(alpha = 0.8f) else Color(0xFF364153).copy(alpha = 0.8f)
 
-    val dateMillis = startDate + (dayIndex * 24 * 60 * 60 * 1000)
-    val dateStr = dateMillis.toReadableDate()
+    val dateMillis = startDate + (dayIndex * 24L * 60L * 60L * 1000L)
+    val dateStr = dateMillis.toReadableDateRu()
+    val label = if (count > 0) "$dateStr • $count" else dateStr
 
     Column(
         modifier =
             Modifier
-                .width(92.dp)
-                .height(54.dp)
+                .width(96.dp)
                 .background(bgColor, RoundedCornerShape(16.dp))
                 .border(1.dp, border, RoundedCornerShape(16.dp))
                 .clickable(onClick = onClick)
-                .padding(vertical = 8.dp),
+                .padding(horizontal = 8.dp, vertical = 10.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
+        verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         Text(
             "День ${dayIndex + 1}",
             fontSize = 13.sp,
+            lineHeight = 15.sp,
             fontWeight = FontWeight.Medium,
             color = dayTextColor,
+            maxLines = 1,
         )
-        Text(dateStr, fontSize = 12.sp, color = dateTextColor)
+        Text(
+            label,
+            fontSize = 12.sp,
+            lineHeight = 14.sp,
+            color = dateTextColor,
+            maxLines = 1,
+        )
     }
 }
 

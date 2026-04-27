@@ -4,23 +4,25 @@ import cafe.adriel.voyager.core.model.screenModelScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
+import org.travelplanner.app.core.AnotherPendingUpdateException
 import org.travelplanner.app.core.BaseScreenModel
+import org.travelplanner.app.core.PendingUpdateStoredException
 import org.travelplanner.app.core.TripUtils.formatDate
 import org.travelplanner.app.core.UserSession
+import org.travelplanner.app.core.toEpochMillis
+import org.travelplanner.app.core.toMoneyDouble
 import org.travelplanner.app.data.ExpenseRepository
 import org.travelplanner.app.data.ParticipantRepository
 import org.travelplanner.app.data.TripRepository
 import kotlin.math.abs
 
 class ExpenseFormScreenModel(
-    private val tripId: Long,
+    private val tripId: String,
     private val participantRepository: ParticipantRepository,
     private val expenseRepository: ExpenseRepository,
     private val userSession: UserSession,
     private val tripRepository: TripRepository,
 ) : BaseScreenModel<AddExpenseState, ExpenseFormIntent, ExpenseFormEffect>(AddExpenseState()) {
-    fun resolveUrl(path: String?): String? = expenseRepository.resolveUrl(path)
-
     private var editingExpenseId: Long? = null
 
     override fun handleIntent(intent: ExpenseFormIntent) {
@@ -84,7 +86,7 @@ class ExpenseFormScreenModel(
             if (expenseId == null) {
                 val myParticipantId =
                     if (currentUser != null) {
-                        participants.find { it.userId == currentUser.id.toString() }?.id
+                        participants.find { it.userId == currentUser.id }?.id
                     } else {
                         null
                     }
@@ -107,7 +109,7 @@ class ExpenseFormScreenModel(
                     expenseRepository.getExpenseById(expenseId).firstOrNull() ?: return@launch
                 val splits = expenseRepository.getExpenseSplitsFlow(expenseId).first()
 
-                val amounts = splits.map { it.amount }
+                val amounts = splits.map { it.amount.toMoneyDouble() }
                 val isManual =
                     if (amounts.isNotEmpty()) {
                         val avg = amounts.average()
@@ -118,19 +120,19 @@ class ExpenseFormScreenModel(
 
                 updateState {
                     AddExpenseState(
-                        amount = expense.amount.toInt().toString(),
+                        amount = expense.amount.toMoneyDouble().toInt().toString(),
                         category = expense.category,
                         description = expense.title,
-                        date = expense.date,
+                        date = expense.date.toEpochMillis(),
                         payerId = participants.find { it.name == expense.payerName }?.id,
                         splitMethod = if (isManual) SplitMethod.MANUAL else SplitMethod.EQUAL,
                         participants =
                             participants.map { p ->
-                                val existingSplit = splits.find { it.participantId == p.id }
+                                val existingSplit = splits.find { it.participantId == p.userId }
                                 ParticipantSplitState(
                                     participant = p,
                                     isSelected = existingSplit != null,
-                                    manualAmount = existingSplit?.amount?.toInt()?.toString() ?: "",
+                                    manualAmount = existingSplit?.amount?.toMoneyDouble()?.toInt()?.toString() ?: "",
                                 )
                             },
                         imageUrl = expense.imageUrl,
@@ -271,6 +273,14 @@ class ExpenseFormScreenModel(
                     )
                 }
                 sendEffect(ExpenseFormEffect.SaveSuccess)
+            } catch (e: PendingUpdateStoredException) {
+                // Approval-required model: a non-creator's edit was queued. Treat as a successful
+                // submission from the user's POV — the next sync will surface the pending row.
+                sendEffect(ExpenseFormEffect.SaveQueuedForApproval)
+            } catch (e: AnotherPendingUpdateException) {
+                // Another participant already has a proposal in flight; surface so UI can warn
+                // and (optionally) keep the form open so the user knows their edit didn't land.
+                sendEffect(ExpenseFormEffect.SaveBlockedAnotherPending)
             } catch (e: Exception) {
                 e.printStackTrace()
             }
