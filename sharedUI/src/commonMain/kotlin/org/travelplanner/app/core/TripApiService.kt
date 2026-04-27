@@ -1,80 +1,68 @@
 package org.travelplanner.app.core
 
 import io.ktor.client.HttpClient
+import io.ktor.client.HttpClientConfig
 import io.ktor.client.call.body
 import io.ktor.client.plugins.HttpSend
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.defaultRequest
 import io.ktor.client.plugins.plugin
-import io.ktor.client.plugins.websocket.WebSockets
-import io.ktor.client.plugins.websocket.receiveDeserialized
-import io.ktor.client.plugins.websocket.webSocket
 import io.ktor.client.request.delete
-import io.ktor.client.request.forms.MultiPartFormDataContent
-import io.ktor.client.request.forms.formData
 import io.ktor.client.request.get
 import io.ktor.client.request.header
+import io.ktor.client.request.patch
 import io.ktor.client.request.post
 import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
-import io.ktor.http.Headers
-import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
-import io.ktor.serialization.kotlinx.KotlinxWebsocketSerializationConverter
 import io.ktor.serialization.kotlinx.json.json
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.channelFlow
-import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import org.travelplanner.app.features.tripDetails.history.ConflictException
-import org.travelplanner.app.features.tripDetails.history.data.HistoryLogDto
-import org.travelplanner.app.features.tripDetails.route.detailed.data.EventDto
+import org.travelplanner.app.core.auth.AuthTokenManager
 import kotlin.coroutines.cancellation.CancellationException
 
 class TripApiService(
-    private val userSession: UserSession,
+    private val authTokenManager: AuthTokenManager,
     private val json: Json,
     private val globalNotifier: GlobalNotifier,
     private val gateway: GatewayConfigManager,
+    private val httpClientConfig: (HttpClientConfig<*>.() -> Unit)? = null,
 ) {
     var isOffline: Boolean = true
 
+    var currentDeviceId: String? = null
+
+    private val plainClient = HttpClient()
+
     private val client =
         HttpClient {
+            httpClientConfig?.invoke(this)
             install(ContentNegotiation) { json(json) }
-            install(WebSockets) {
-                contentConverter = KotlinxWebsocketSerializationConverter(Json)
-                pingIntervalMillis = 15_000
-            }
 
             defaultRequest {
-                val currentUserId = userSession.currentUser.value?.id
-                if (currentUserId != null) {
-                    header("X-User-Id", currentUserId.toString())
+                val token = authTokenManager.accessToken
+                if (token != null) {
+                    header("Authorization", "Bearer $token")
                 }
-
-                if (this.url.protocol.name != "ws" && this.url.protocol.name != "wss") {
-                    contentType(ContentType.Application.Json)
-                }
+                contentType(ContentType.Application.Json)
             }
         }.also { httpClient ->
             httpClient.plugin(HttpSend).intercept { request ->
-                val protocol = request.url.protocol.name
-                if (protocol == "ws" || protocol == "wss") {
-                    return@intercept execute(request)
-                }
-
                 val method = request.method
                 val isMutation =
                     method == HttpMethod.Post ||
                         method == HttpMethod.Put ||
                         method == HttpMethod.Delete ||
                         method == HttpMethod.Patch
+
+                val urlPath = request.url.buildString()
+                val passThroughErrors =
+                    urlPath.contains("/participants/invite") ||
+                        urlPath.contains("/trip-invitations/")
 
                 if (isOffline && isMutation) {
                     globalNotifier.notifyError("Нет сети. Доступен только режим чтения.")
@@ -87,28 +75,65 @@ class TripApiService(
 
                 try {
                     val call = execute(request)
-
                     val status = call.response.status
+
+                    if (status == HttpStatusCode.Unauthorized) {
+                        val newToken = authTokenManager.refreshAccessToken()
+                        if (newToken != null) {
+                            request.headers.remove("Authorization")
+                            request.headers.append("Authorization", "Bearer $newToken")
+                            return@intercept execute(request)
+                        }
+                    }
+
                     if (!status.isSuccess()) {
+                        val errorText = call.response.bodyAsText()
+                        val backendError =
+                            try {
+                                json.decodeFromString<BackendErrorResponse>(errorText)
+                            } catch (_: Exception) {
+                                BackendErrorResponse(
+                                    code = "UNKNOWN",
+                                    message = errorText,
+                                )
+                            }
+
+                        println(
+                            "[TripApiService] ${request.method.value} $urlPath -> ${status.value} ${backendError.code}: ${backendError.message}",
+                        )
 
                         if (status.value == 409) {
-                            throw ConflictException(call.response.bodyAsText())
+                            when (backendError.code) {
+                                "PENDING_UPDATE_STORED" -> throw PendingUpdateStoredException(
+                                    backendError,
+                                )
+
+                                "ANOTHER_PENDING_UPDATE" -> throw AnotherPendingUpdateException(
+                                    backendError,
+                                )
+
+                                else -> throw VersionConflictException(backendError)
+                            }
                         }
 
-                        val errorText = call.response.bodyAsText()
-                        println("API ERROR: $status - $errorText")
-
-                        throw Exception("HTTP Error ${status.value}: $errorText")
+                        throw BackendApiException(status.value, backendError)
                     }
 
                     return@intercept call
                 } catch (e: CancellationException) {
                     throw e
-                } catch (e: ConflictException) {
+                } catch (e: VersionConflictException) {
                     throw e
-                } catch (e: Exception) {
+                } catch (e: PendingUpdateStoredException) {
+                    throw e
+                } catch (e: AnotherPendingUpdateException) {
+                    throw e
+                } catch (e: BackendApiException) {
+                    if (passThroughErrors) {
+                        throw e
+                    }
                     if (isMutation) {
-                        if (e.message?.contains("HTTP Error 400") == true) {
+                        if (e.statusCode == 400) {
                             globalNotifier.notifyError("Ошибка данных. Проверьте введенные значения.")
                         } else {
                             globalNotifier.notifyError("Ошибка сети. Изменения не сохранены.")
@@ -116,291 +141,465 @@ class TripApiService(
                     } else {
                         globalNotifier.notifyError("Ошибка загрузки данных.")
                     }
-
+                    throw CancellationException("Safe abort due to: ${e.message}")
+                } catch (e: Exception) {
+                    println("[TripApiService] ${request.method.value} $urlPath failed: ${e::class.simpleName}: ${e.message}")
+                    if (passThroughErrors) {
+                        throw e
+                    }
+                    if (isMutation) {
+                        globalNotifier.notifyError("Ошибка сети. Изменения не сохранены.")
+                    } else {
+                        globalNotifier.notifyError("Ошибка загрузки данных.")
+                    }
                     throw CancellationException("Safe abort due to: ${e.message}")
                 }
             }
         }
 
     private val baseUrl: String get() = gateway.baseUrl
-    private val wsUrl: String get() = gateway.wsUrl
 
-    fun resolveUrl(path: String?): String? = path?.let { "$baseUrl$it" }
+    // -- Trips --
 
-    fun connectToGlobalEvents(onConnect: () -> Unit): Flow<TripEvent> =
-        channelFlow {
-            println("WS-DEBUG: Connecting to global events...")
-            try {
-                client.webSocket("$wsUrl/ws/events") {
-                    println("WS-DEBUG: HANDSHAKE SUCCESS! Global socket open.")
+    suspend fun getTrips(): List<TripResponse> = client.get("$baseUrl/api/v1/trips").body()
 
-                    onConnect()
+    suspend fun createTrip(request: V2CreateTripRequest): TripResponse = client.post("$baseUrl/api/v1/trips") { setBody(request) }.body()
 
-                    while (true) {
-                        val event = receiveDeserialized<TripEvent>()
-                        println("WS-DEBUG: Received global event: $event")
-                        send(event)
-                    }
-                }
-            } catch (e: Exception) {
-                println("WS-DEBUG: WEBSOCKET DISCONNECTED: ${e.message}")
-                close(e)
-            }
-        }
+    suspend fun getTrip(tripId: String): TripResponse = client.get("$baseUrl/api/v1/trips/$tripId").body()
 
-    suspend fun getUserTrips(): List<TripDto> = client.get("$baseUrl/trips").body()
+    suspend fun updateTrip(
+        tripId: String,
+        request: V2UpdateTripRequest,
+    ): TripResponse = client.patch("$baseUrl/api/v1/trips/$tripId") { setBody(request) }.body()
 
-    suspend fun createTrip(request: CreateTripRequest): TripDto {
-        val response =
-            client.post("$baseUrl/trips") {
-                setBody(request)
-            }
-        println("TRIP_DEBUG 📡 HTTP Status: ${response.status}")
-        println("TRIP_DEBUG 📡 Raw body: ${response.bodyAsText()}")
-        return response.body()
+    suspend fun deleteTrip(tripId: String) {
+        client.delete("$baseUrl/api/v1/trips/$tripId")
     }
 
-    suspend fun uploadPhoto(photoBytes: ByteArray): String {
-        @Serializable
-        data class UploadResponse(
-            val url: String,
-        )
+    suspend fun archiveTrip(tripId: String): TripResponse = client.post("$baseUrl/api/v1/trips/$tripId/archive").body()
 
-        val response =
-            client.post("$baseUrl/upload") {
-                setBody(
-                    MultiPartFormDataContent(
-                        formData {
-                            append(
-                                "image",
-                                photoBytes,
-                                Headers.build {
-                                    append(HttpHeaders.ContentType, "image/jpeg")
-                                    append(HttpHeaders.ContentDisposition, "filename=\"photo.jpg\"")
-                                },
-                            )
-                        },
-                    ),
-                )
-            }
-        return response.body<UploadResponse>().url
-    }
+    // -- Participants --
 
-    suspend fun uploadFile(
-        fileBytes: ByteArray,
-        fileName: String,
-    ): String {
-        @Serializable
-        data class UploadResponse(
-            val url: String,
-        )
+    suspend fun getParticipants(tripId: String): List<ParticipantDetailResponse> =
+        client.get("$baseUrl/api/v1/trips/$tripId/participants").body()
 
-        val response =
-            client.post("$baseUrl/upload") {
-                setBody(
-                    MultiPartFormDataContent(
-                        formData {
-                            append(
-                                "image",
-                                fileBytes,
-                                Headers.build {
-                                    append(HttpHeaders.ContentDisposition, "filename=\"$fileName\"")
-                                },
-                            )
-                        },
-                    ),
-                )
-            }
-        return response.body<UploadResponse>().url
-    }
+    suspend fun inviteParticipant(
+        tripId: String,
+        request: InviteParticipantRequest,
+    ): InvitationResponse = client.post("$baseUrl/api/v1/trips/$tripId/participants/invite") { setBody(request) }.body()
 
-    suspend fun deleteOrLeaveTrip(tripId: Long) {
-        client.delete("$baseUrl/trips/$tripId")
-    }
-
-    suspend fun setTripStatus(
-        tripId: Long,
-        status: String,
+    suspend fun removeParticipant(
+        tripId: String,
+        userId: String,
     ) {
-        client.put("$baseUrl/trips/$tripId/status?status=$status")
+        client.delete("$baseUrl/api/v1/trips/$tripId/participants/$userId")
     }
 
-    suspend fun updateTripBudget(
-        tripId: Long,
-        newBudget: Double,
-    ): TripDto =
+    suspend fun changeRole(
+        tripId: String,
+        userId: String,
+        request: ChangeRoleRequest,
+    ) {
+        client.patch("$baseUrl/api/v1/trips/$tripId/participants/$userId") { setBody(request) }
+    }
+
+    suspend fun acceptInvitation(invitationId: String): ParticipantResponse {
+        val res: ParticipantResponse =
+            client.post("$baseUrl/api/v1/trip-invitations/$invitationId/accept").body()
+        return res
+    }
+
+    // -- Itinerary --
+
+    suspend fun getItinerary(tripId: String): List<ItineraryPointResponse> = client.get("$baseUrl/api/v1/trips/$tripId/itinerary").body()
+
+    suspend fun createItineraryPoint(
+        tripId: String,
+        request: V2CreateItineraryPointRequest,
+    ): ItineraryPointResponse = client.post("$baseUrl/api/v1/trips/$tripId/itinerary") { setBody(request) }.body()
+
+    suspend fun updateItineraryPoint(
+        tripId: String,
+        pointId: String,
+        request: V2UpdateItineraryPointRequest,
+    ): ItineraryPointResponse = client.patch("$baseUrl/api/v1/trips/$tripId/itinerary/$pointId") { setBody(request) }.body()
+
+    suspend fun deleteItineraryPoint(
+        tripId: String,
+        pointId: String,
+    ) {
+        client.delete("$baseUrl/api/v1/trips/$tripId/itinerary/$pointId")
+    }
+
+    suspend fun reorderItinerary(
+        tripId: String,
+        request: ReorderRequest,
+    ) {
+        client.post("$baseUrl/api/v1/trips/$tripId/itinerary/reorder") { setBody(request) }
+    }
+
+    // -- Expenses --
+
+    suspend fun getExpenses(tripId: String): List<ExpenseResponse> = client.get("$baseUrl/api/v1/trips/$tripId/expenses").body()
+
+    suspend fun createExpense(
+        tripId: String,
+        request: V2CreateExpenseRequest,
+    ): ExpenseResponse = client.post("$baseUrl/api/v1/trips/$tripId/expenses") { setBody(request) }.body()
+
+    suspend fun getExpense(
+        tripId: String,
+        expenseId: String,
+    ): ExpenseResponse = client.get("$baseUrl/api/v1/trips/$tripId/expenses/$expenseId").body()
+
+    suspend fun updateExpense(
+        tripId: String,
+        expenseId: String,
+        request: V2UpdateExpenseRequest,
+    ): ExpenseResponse =
         client
-            .put("$baseUrl/trips/$tripId/budget") {
-                contentType(ContentType.Application.Json)
-                setBody(UpdateBudgetRequest(newBudget))
+            .patch("$baseUrl/api/v1/trips/$tripId/expenses/$expenseId") { setBody(request) }
+            .body()
+
+    suspend fun deleteExpense(
+        tripId: String,
+        expenseId: String,
+    ) {
+        client.delete("$baseUrl/api/v1/trips/$tripId/expenses/$expenseId")
+    }
+
+    // -- Analytics --
+
+    suspend fun getBalances(tripId: String): List<BalanceResponse> = client.get("$baseUrl/api/v1/trips/$tripId/balances").body()
+
+    suspend fun getSettlements(tripId: String): List<SettlementResponse> = client.get("$baseUrl/api/v1/trips/$tripId/settlements").body()
+
+    suspend fun getStatistics(tripId: String): StatisticsResponse = client.get("$baseUrl/api/v1/trips/$tripId/statistics").body()
+
+    // -- Attachments --
+
+    suspend fun presignUpload(request: PresignUploadRequest): PresignedUploadResponse =
+        client.post("$baseUrl/api/v1/attachments/presign") { setBody(request) }.body()
+
+    suspend fun presignDownload(s3Key: String): PresignedDownloadResponse =
+        client
+            .post("$baseUrl/api/v1/attachments/presign-download") {
+                setBody(PresignDownloadRequest(s3Key))
             }.body()
 
-    suspend fun joinTrip(
-        tripId: Long,
-        userId: String,
-        name: String,
+    suspend fun createAttachment(
+        tripId: String,
+        request: CreateAttachmentRequest,
+    ): AttachmentResponse = client.post("$baseUrl/api/v1/trips/$tripId/attachments") { setBody(request) }.body()
+
+    suspend fun createExpenseAttachment(
+        tripId: String,
+        expenseId: String,
+        request: CreateAttachmentRequest,
+    ): AttachmentResponse =
+        client
+            .post("$baseUrl/api/v1/trips/$tripId/expenses/$expenseId/attachments") {
+                setBody(
+                    request,
+                )
+            }.body()
+
+    suspend fun deleteAttachment(attachmentId: String) {
+        client.delete("$baseUrl/api/v1/attachments/$attachmentId")
+    }
+
+    suspend fun listTripFiles(
+        tripId: String,
+        scope: String = "trip",
+    ): List<AttachmentResponse> = client.get("$baseUrl/api/v1/trips/$tripId/attachments?scope=$scope").body()
+
+    suspend fun createPointAttachment(
+        tripId: String,
+        pointId: String,
+        request: CreateAttachmentRequest,
+    ): AttachmentResponse =
+        client
+            .post("$baseUrl/api/v1/trips/$tripId/itinerary/$pointId/attachments") {
+                setBody(
+                    request,
+                )
+            }.body()
+
+    // -- Itinerary point links/comments --
+
+    suspend fun getPointLinks(
+        tripId: String,
+        pointId: String,
+    ): List<PointLinkResponse> {
+        if (!BackendFeatureFlags.RICH_EVENT_DATA_ENABLED) return emptyList()
+        return client.get("$baseUrl/api/v1/trips/$tripId/itinerary/$pointId/links").body()
+    }
+
+    suspend fun addPointLink(
+        tripId: String,
+        pointId: String,
+        request: AddPointLinkRequest,
+    ): PointLinkResponse? {
+        if (!BackendFeatureFlags.RICH_EVENT_DATA_ENABLED) return null
+        return client
+            .post("$baseUrl/api/v1/trips/$tripId/itinerary/$pointId/links") {
+                setBody(
+                    request,
+                )
+            }.body()
+    }
+
+    suspend fun deletePointLink(
+        tripId: String,
+        pointId: String,
+        linkId: String,
     ) {
-        client.post("$baseUrl/trips/$tripId/participants") {
-            contentType(ContentType.Application.Json)
-            setBody(JoinTripRequest(userId, name))
+        if (!BackendFeatureFlags.RICH_EVENT_DATA_ENABLED) return
+        client.delete("$baseUrl/api/v1/trips/$tripId/itinerary/$pointId/links/$linkId")
+    }
+
+    suspend fun getPointComments(
+        tripId: String,
+        pointId: String,
+        limit: Int = 100,
+        offset: Int = 0,
+    ): List<PointCommentResponse> {
+        if (!BackendFeatureFlags.RICH_EVENT_DATA_ENABLED) return emptyList()
+        return client
+            .get("$baseUrl/api/v1/trips/$tripId/itinerary/$pointId/comments?limit=$limit&offset=$offset")
+            .body()
+    }
+
+    suspend fun addPointComment(
+        tripId: String,
+        pointId: String,
+        request: AddPointCommentRequest,
+    ): PointCommentResponse? {
+        if (!BackendFeatureFlags.RICH_EVENT_DATA_ENABLED) return null
+        return client
+            .post("$baseUrl/api/v1/trips/$tripId/itinerary/$pointId/comments") {
+                setBody(
+                    request,
+                )
+            }.body()
+    }
+
+    // -- Sync --
+
+    suspend fun getSnapshot(tripId: String): SnapshotResponse {
+        val raw = client.get("$baseUrl/api/v1/trips/$tripId/snapshot").bodyAsText()
+        println("[Sync] RAW snapshot body for $tripId: $raw")
+        return json.decodeFromString(raw)
+    }
+
+    suspend fun getDelta(
+        tripId: String,
+        cursor: String,
+    ): DeltaResponse {
+        val raw = client.get("$baseUrl/api/v1/trips/$tripId/sync?cursor=$cursor").bodyAsText()
+        println("[Sync] RAW delta body for $tripId (cursor=$cursor): $raw")
+        return json.decodeFromString(raw)
+    }
+
+    // -- Devices --
+
+    suspend fun registerDevice(request: RegisterDeviceRequest): DeviceResponse =
+        client.post("$baseUrl/api/v1/me/devices") { setBody(request) }.body()
+
+    suspend fun removeDevice(deviceId: String) {
+        client.delete("$baseUrl/api/v1/me/devices/$deviceId")
+    }
+
+    // -- Composite: presign -> S3 PUT -> createAttachment --
+
+    suspend fun uploadFile(
+        tripId: String,
+        fileBytes: ByteArray,
+        fileName: String,
+        contentType: String,
+    ): AttachmentResponse {
+        val presigned =
+            presignUpload(
+                PresignUploadRequest(
+                    fileName,
+                    contentType,
+                    fileBytes.size.toLong(),
+                    tripId,
+                ),
+            )
+
+        // Upload
+        val s3Client = HttpClient()
+        try {
+            s3Client.put(presigned.uploadUrl) {
+                header("Content-Type", contentType)
+                setBody(fileBytes)
+            }
+        } finally {
+            s3Client.close()
         }
+
+        return createAttachment(
+            tripId,
+            CreateAttachmentRequest(
+                fileName = fileName,
+                fileSize = fileBytes.size.toLong(),
+                mimeType = contentType,
+                s3Key = presigned.s3Key,
+            ),
+        )
+    }
+
+    suspend fun uploadExpenseFile(
+        tripId: String,
+        expenseId: String,
+        fileBytes: ByteArray,
+        fileName: String,
+        contentType: String,
+    ): AttachmentResponse {
+        val presigned =
+            presignUpload(
+                PresignUploadRequest(
+                    fileName,
+                    contentType,
+                    fileBytes.size.toLong(),
+                    tripId,
+                ),
+            )
+
+        val s3Client = HttpClient()
+        try {
+            s3Client.put(presigned.uploadUrl) {
+                header("Content-Type", contentType)
+                setBody(fileBytes)
+            }
+        } finally {
+            s3Client.close()
+        }
+
+        return createExpenseAttachment(
+            tripId,
+            expenseId,
+            CreateAttachmentRequest(
+                fileName = fileName,
+                fileSize = fileBytes.size.toLong(),
+                mimeType = contentType,
+                s3Key = presigned.s3Key,
+            ),
+        )
+    }
+
+    // -- Feature-flagged (no-op when disabled) --
+
+    suspend fun getChecklist(tripId: String): List<ChecklistItemResponse> {
+        if (!BackendFeatureFlags.CHECKLIST_ENABLED) return emptyList()
+        return client.get("$baseUrl/api/v1/trips/$tripId/checklist").body()
+    }
+
+    suspend fun addChecklistItem(
+        tripId: String,
+        request: V2CreateChecklistItemRequest,
+    ): ChecklistItemResponse? {
+        if (!BackendFeatureFlags.CHECKLIST_ENABLED) return null
+        return client.post("$baseUrl/api/v1/trips/$tripId/checklist") { setBody(request) }.body()
+    }
+
+    suspend fun toggleChecklistItem(
+        tripId: String,
+        itemId: String,
+    ): ChecklistItemResponse? {
+        if (!BackendFeatureFlags.CHECKLIST_ENABLED) return null
+        return client.put("$baseUrl/api/v1/trips/$tripId/checklist/$itemId/toggle").body()
+    }
+
+    suspend fun deleteChecklistItem(
+        tripId: String,
+        itemId: String,
+    ) {
+        if (!BackendFeatureFlags.CHECKLIST_ENABLED) return
+        client.delete("$baseUrl/api/v1/trips/$tripId/checklist/$itemId")
+    }
+
+    suspend fun getTripHistory(tripId: String): List<org.travelplanner.app.features.tripDetails.history.data.HistoryLogDto> {
+        if (!BackendFeatureFlags.HISTORY_ENABLED) return emptyList()
+        return client.get("$baseUrl/api/v1/trips/$tripId/history").body()
     }
 
     suspend fun requestJoinTrip(
         code: String,
         userId: String,
         name: String,
-    ): TripDto {
-        val response =
-            client.post("$baseUrl/trips/join-request") {
-                contentType(ContentType.Application.Json)
-                setBody(JoinByCodeRequest(code, userId, name))
-            }
-
-        if (response.status.value in 200..299) {
-            return response.body()
-        } else {
-            throw Exception("Failed to join trip: ${response.status}")
-        }
+    ): TripResponse? {
+        if (!BackendFeatureFlags.JOIN_BY_CODE_ENABLED) return null
+        return client
+            .post("$baseUrl/api/v1/trips/join-request") {
+                setBody(V2JoinByCodeRequest(code))
+            }.body()
     }
 
-    suspend fun updateTripFiles(
-        tripId: Long,
-        filesJson: String,
-    ) {
-        @Serializable
-        data class UpdateFilesRequest(
-            val filesJson: String,
-        )
-
-        client.put("$baseUrl/trips/$tripId/files") {
-            contentType(ContentType.Application.Json)
-            setBody(UpdateFilesRequest(filesJson))
-        }
+    suspend fun getPendingRequests(tripId: String): List<JoinRequestUserResponse> {
+        if (!BackendFeatureFlags.JOIN_BY_CODE_ENABLED) return emptyList()
+        return client.get("$baseUrl/api/v1/trips/$tripId/requests").body()
     }
-
-    suspend fun getPendingRequests(tripId: Long): List<UserDto> = client.get("$baseUrl/trips/$tripId/requests").body()
 
     suspend fun resolveRequest(
-        tripId: Long,
+        tripId: String,
         userId: String,
         approve: Boolean,
     ) {
-        client.post("$baseUrl/trips/$tripId/requests/$userId/resolve?approve=$approve")
+        if (!BackendFeatureFlags.JOIN_BY_CODE_ENABLED) return
+        client.post("$baseUrl/api/v1/trips/$tripId/requests/$userId/resolve?approve=$approve")
     }
 
-    suspend fun regenerateCode(tripId: Long): String {
-        @Serializable
-        data class CodeResponse(
-            val newCode: String,
-        )
-
-        val response = client.post("$baseUrl/trips/$tripId/regenerate-code").body<CodeResponse>()
-        return response.newCode
-    }
-
-    suspend fun getParticipants(tripId: Long): List<UserDto> = client.get("$baseUrl/trips/$tripId/participants").body()
-
-    suspend fun getExpenses(tripId: Long): List<ExpenseDto> = client.get("$baseUrl/trips/$tripId/expenses").body()
-
-    suspend fun addExpense(
-        tripId: Long,
-        expense: CreateExpenseRequest,
-    ): ExpenseDto =
-        client
-            .post("$baseUrl/trips/$tripId/expenses") {
-                setBody(expense)
-                header("Content-Type", "application/json")
-            }.body()
-
-    suspend fun updateExpense(
-        tripId: Long,
-        expenseRemoteId: String,
-        expense: CreateExpenseRequest,
-        baseHash: String,
-        force: Boolean = false,
-    ): ExpenseDto {
-        val response =
-            client.put("$baseUrl/trips/$tripId/expenses/$expenseRemoteId?baseHash=$baseHash&force=$force") {
-                contentType(ContentType.Application.Json)
-                setBody(expense)
-            }
-
-        if (response.status == HttpStatusCode.Conflict) {
-            val serverState = response.bodyAsText()
-            throw ConflictException(serverState)
-        }
-
-        if (response.status.value !in 200..299) {
-            throw Exception("HTTP Error: ${response.status}")
-        }
-
-        return response.body()
-    }
-
-    suspend fun deleteExpense(
-        tripId: Long,
-        expenseRemoteId: String,
-    ) {
-        client.delete("$baseUrl/trips/$tripId/expenses/$expenseRemoteId")
+    suspend fun regenerateCode(tripId: String): String? {
+        if (!BackendFeatureFlags.JOIN_BY_CODE_ENABLED) return null
+        return client
+            .post("$baseUrl/api/v1/trips/$tripId/regenerate-code")
+            .body<RegenerateCodeResponse>()
+            .newCode
     }
 
     suspend fun resolveConflict(
-        tripId: Long,
+        tripId: String,
         expenseRemoteId: String,
         accept: Boolean,
-    ): ExpenseDto =
-        client
-            .post("$baseUrl/trips/$tripId/expenses/$expenseRemoteId/resolve?accept=$accept")
+    ): ExpenseResponse? {
+        if (!BackendFeatureFlags.EXPENSE_CONFLICT_ENABLED) return null
+        return client
+            .post("$baseUrl/api/v1/trips/$tripId/expenses/$expenseRemoteId/resolve?accept=$accept")
             .body()
-
-    suspend fun getEvents(tripId: Long): List<EventDto> = client.get("$baseUrl/trips/$tripId/events").body()
-
-    suspend fun addEvent(
-        tripId: Long,
-        event: EventDto,
-    ): EventDto =
-        client
-            .post("$baseUrl/trips/$tripId/events") {
-                setBody(event)
-                header("Content-Type", "application/json")
-            }.body()
-
-    suspend fun updateEvent(
-        tripId: Long,
-        event: EventDto,
-    ): EventDto =
-        client
-            .put("$baseUrl/trips/$tripId/events/${event.id}") {
-                setBody(event)
-                header("Content-Type", "application/json")
-            }.body()
-
-    suspend fun deleteEvent(
-        tripId: Long,
-        eventId: String,
-    ) {
-        client.delete("$baseUrl/trips/$tripId/events/$eventId")
     }
 
-    suspend fun getTripHistory(tripId: Long): List<HistoryLogDto> = client.get("$baseUrl/trips/$tripId/history").body()
-
-    suspend fun getChecklist(tripId: Long): List<ChecklistItemDto> = client.get("$baseUrl/trips/$tripId/checklist").body()
-
-    suspend fun addChecklistItem(
-        tripId: Long,
-        request: CreateChecklistItemRequest,
-    ): ChecklistItemDto = client.post("$baseUrl/trips/$tripId/checklist") { setBody(request) }.body()
-
-    suspend fun toggleChecklistItem(
-        tripId: Long,
-        itemId: String,
-    ): ChecklistItemDto = client.put("$baseUrl/trips/$tripId/checklist/$itemId/toggle").body()
-
-    suspend fun deleteChecklistItem(
-        tripId: Long,
-        itemId: String,
-    ) {
-        client.delete("$baseUrl/trips/$tripId/checklist/$itemId")
+    suspend fun resolveConflictMerge(
+        tripId: String,
+        expenseRemoteId: String,
+        merged: V2MergeExpenseRequest,
+    ): ExpenseResponse? {
+        if (!BackendFeatureFlags.EXPENSE_CONFLICT_ENABLED) return null
+        return client
+            .post("$baseUrl/api/v1/trips/$tripId/expenses/$expenseRemoteId/resolve-merge") {
+                contentType(ContentType.Application.Json)
+                setBody(merged)
+            }.body()
     }
+
+    suspend fun resolveConflictRevert(
+        tripId: String,
+        expenseRemoteId: String,
+    ): ExpenseResponse? {
+        if (!BackendFeatureFlags.EXPENSE_CONFLICT_ENABLED) return null
+        return client
+            .post("$baseUrl/api/v1/trips/$tripId/expenses/$expenseRemoteId/resolve-revert")
+            .body()
+    }
+
+    // -- Health --
+
+    suspend fun healthCheck(): Boolean =
+        try {
+            val response = plainClient.get("$baseUrl/health/live")
+            response.status.isSuccess()
+        } catch (_: Exception) {
+            false
+        }
 }

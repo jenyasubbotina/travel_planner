@@ -1,12 +1,14 @@
 package org.travelplanner.app.core
 
 import kotlinx.serialization.json.Json
+import org.koin.core.qualifier.named
 import org.koin.dsl.module
-import org.travelplanner.app.WelcomeScreenModel
+import org.travelplanner.app.core.auth.AuthTokenManager
 import org.travelplanner.app.data.EventRepository
 import org.travelplanner.app.data.ExpenseRepository
 import org.travelplanner.app.data.GlobalSyncManager
 import org.travelplanner.app.data.ParticipantRepository
+import org.travelplanner.app.data.SyncTrigger
 import org.travelplanner.app.data.TripDetailsScreenModel
 import org.travelplanner.app.data.TripRepository
 import org.travelplanner.app.db.MyDatabase
@@ -21,7 +23,7 @@ import org.travelplanner.app.features.tripDetails.more.checklist.data.ChecklistR
 import org.travelplanner.app.features.tripDetails.more.checklist.ui.ChecklistScreenModel
 import org.travelplanner.app.features.tripDetails.more.files.ui.FilesScreenModel
 import org.travelplanner.app.features.tripDetails.more.participants.ui.ParticipantsScreenModel
-import org.travelplanner.app.features.tripDetails.more.settings.ui.SettingsScreenModel
+import org.travelplanner.app.features.profile.ui.ProfileScreenModel
 import org.travelplanner.app.features.tripDetails.route.detailed.ui.EventDetailsScreenModel
 import org.travelplanner.app.features.tripDetails.route.ui.ItineraryScreenModel
 import org.travelplanner.app.features.tripDetails.summary.TripSummaryScreenModel
@@ -40,18 +42,28 @@ val commonModule =
             }
         }
 
+        single { GlobalNotifier() }
+
+        single { ReverseGeocoder(json = get()) }
+
         single {
-            GlobalNotifier()
+            AuthTokenManager(
+                sessionStore = get(),
+                accountsStore = get(named("accounts")),
+                json = get(),
+                baseUrlProvider = { get<GatewayConfigManager>().baseUrl },
+            )
         }
 
-        single { UserSession(get()) }
+        single { UserSession(authTokenManager = get()) }
 
         single {
             TripApiService(
-                get(),
+                authTokenManager = get(),
                 json = get(),
                 globalNotifier = get(),
                 gateway = get(),
+                httpClientConfig = getOrNull(),
             )
         }
 
@@ -85,6 +97,8 @@ val commonModule =
 
         single { ChecklistRepository(get(), get(), json = get()) }
 
+        single { SyncTrigger() }
+
         single {
             GlobalSyncManager(
                 userSession = get(),
@@ -93,14 +107,14 @@ val commonModule =
                 participantRepo = get(),
                 expenseRepo = get(),
                 eventRepo = get(),
-                historyRepository = get(),
-                checklistRepo = get(),
+                db = get(),
+                syncTrigger = get(),
+                json = get(),
             )
         }
 
-        factory<WelcomeScreenModel> { WelcomeScreenModel(get()) }
 
-        factory { (tripId: Long) ->
+        factory { (tripId: String) ->
             TripDetailsScreenModel(
                 tripId,
                 get(),
@@ -112,7 +126,7 @@ val commonModule =
             )
         }
 
-        factory<TripSummaryScreenModel> { (tripId: Long) ->
+        factory<TripSummaryScreenModel> { (tripId: String) ->
             TripSummaryScreenModel(
                 tripId,
                 get(),
@@ -122,16 +136,17 @@ val commonModule =
             )
         }
 
-        factory { (tripId: Long) ->
+        factory { (tripId: String) ->
             ItineraryScreenModel(
                 tripId,
                 get(),
                 eventsRepository = get(),
                 participantRepository = get(),
+                reverseGeocoder = get(),
             )
         }
 
-        factory { (tripId: Long, eventId: Long) ->
+        factory { (tripId: String, eventId: Long) ->
             EventDetailsScreenModel(
                 tripId = tripId,
                 eventId = eventId,
@@ -139,10 +154,11 @@ val commonModule =
                 participantRepository = get(),
                 userSession = get(),
                 tripRepository = get(),
+                reverseGeocoder = get(),
             )
         }
 
-        factory { (tripId: Long) ->
+        factory { (tripId: String) ->
             ExpensesScreenModel(
                 tripId,
                 get(),
@@ -152,7 +168,7 @@ val commonModule =
             )
         }
 
-        factory { (expenseId: Long, tripId: Long) ->
+        factory { (expenseId: Long, tripId: String) ->
             ExpenseDetailsScreenModel(
                 expenseId,
                 tripId,
@@ -164,7 +180,7 @@ val commonModule =
             )
         }
 
-        factory { (tripId: Long) ->
+        factory { (tripId: String) ->
             ExpenseFormScreenModel(
                 tripId,
                 participantRepository = get(),
@@ -174,7 +190,7 @@ val commonModule =
             )
         }
 
-        factory { (tripId: Long) ->
+        factory { (tripId: String) ->
             BalanceScreenModel(
                 tripId,
                 get(),
@@ -184,7 +200,7 @@ val commonModule =
             )
         }
 
-        factory { (tripId: Long) ->
+        factory { (tripId: String) ->
             MoreTabScreenModel(
                 tripId,
                 get(),
@@ -194,11 +210,12 @@ val commonModule =
                 expenseRepository = get(),
                 eventRepository = get(),
                 checklistRepository = get(),
+                globalNotifier = get(),
                 json = get(),
             )
         }
 
-        factory { (tripId: Long) ->
+        factory { (tripId: String) ->
             HistoryScreenModel(
                 tripId = tripId,
                 historyRepository = get(),
@@ -211,6 +228,7 @@ val commonModule =
                 get(),
                 userSession = get(),
                 globalSyncManager = get(),
+                participantRepository = get(),
             )
         }
         factory {
@@ -230,5 +248,5 @@ val commonModule =
                 userSession = get(),
             )
         }
-        factory { params -> SettingsScreenModel(get()) }
+        factory { params -> ProfileScreenModel(get()) }
     }

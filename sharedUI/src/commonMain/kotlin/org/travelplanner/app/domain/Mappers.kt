@@ -7,7 +7,11 @@ import org.travelplanner.app.TripEntity
 import org.travelplanner.app.TripEventEntity
 import org.travelplanner.app.TripExpenseEntity
 import org.travelplanner.app.TripParticipantEntity
-import org.travelplanner.app.core.UserDto
+import org.travelplanner.app.core.ExpenseResponse
+import org.travelplanner.app.core.ItineraryPointResponse
+import org.travelplanner.app.core.ParticipantDetailResponse
+import org.travelplanner.app.core.TripResponse
+import org.travelplanner.app.core.JoinRequestUserResponse
 import org.travelplanner.app.features.tripDetails.route.detailed.data.EventCommentDto
 import org.travelplanner.app.features.tripDetails.route.detailed.data.EventFileDto
 import org.travelplanner.app.features.tripDetails.route.detailed.data.EventLinkDto
@@ -29,6 +33,11 @@ fun TripEntity.toDomain(): Trip =
         ownerUserId = ownerUserId,
         imageUrl = imageUrl,
         filesJson = filesJson,
+        baseCurrency = baseCurrency,
+        version = version,
+        createdBy = createdBy,
+        createdAt = createdAt,
+        updatedAt = updatedAt,
     )
 
 fun TripParticipantEntity.toDomain(): Participant =
@@ -39,8 +48,8 @@ fun TripParticipantEntity.toDomain(): Participant =
         name = name,
         email = email,
         role = role,
-        avatarColor1 = avatarColor1,
-        avatarColor2 = avatarColor2,
+        joinedAt = joinedAt,
+        avatarUrl = avatarUrl,
     )
 
 fun TripExpenseEntity.toDomain(): Expense =
@@ -58,6 +67,8 @@ fun TripExpenseEntity.toDomain(): Expense =
         creatorUserId = creatorUserId,
         pendingUpdateJson = pendingUpdateJson,
         imageUrl = imageUrl,
+        version = version,
+        splitType = splitType,
     )
 
 fun ExpenseSplitEntity.toDomain(): ExpenseSplit =
@@ -94,13 +105,15 @@ fun TripEventEntity.toDomain(json: Json): Event =
             },
         files =
             parseJsonList<EventFileDto>(json, filesJson).map {
-                EventFile(
-                    it.name,
-                    it.url,
-                    it.type,
-                )
+                EventFile(it.name, it.url, it.type)
             },
         participantIds = parseJsonList(json, participantIdsJson),
+        sortOrder = sortOrder.toInt(),
+        type = type,
+        startTime = startTime,
+        endTime = endTime,
+        version = version,
+        createdBy = createdBy,
     )
 
 fun TripChecklistEntity.toDomain(json: Json): ChecklistItem =
@@ -113,11 +126,96 @@ fun TripChecklistEntity.toDomain(json: Json): ChecklistItem =
         completedBy = parseJsonList(json, completedByJson),
     )
 
-fun UserDto.toPendingUser(): PendingUser =
+fun JoinRequestUserResponse.toPendingUser(): PendingUser =
     PendingUser(
-        id = id,
-        name = name,
+        id = userId,
+        name = displayName,
         email = email,
+    )
+
+// -- New response-to-domain mappers --
+
+fun TripResponse.toDomain(): Trip =
+    Trip(
+        id = id,
+        title = title,
+        destination = destination,
+        startDate = startDate,
+        endDate = endDate,
+        currency = baseCurrency,
+        totalBudget = totalBudget,
+        spentAmount = "0",
+        description = description,
+        status = status,
+        joinCode = joinCode,
+        ownerUserId = createdBy,
+        imageUrl = imageUrl,
+        baseCurrency = baseCurrency,
+        version = version,
+        createdBy = createdBy,
+        createdAt = createdAt,
+        updatedAt = updatedAt,
+    )
+
+fun ExpenseResponse.toDomain(): Expense =
+    Expense(
+        id = 0,
+        remoteId = id,
+        tripId = tripId,
+        title = title,
+        amount = amount,
+        category = category,
+        payerName = payerUserId,
+        date = expenseDate,
+        splitDescription = splits.joinToString(", ") { "${it.participantUserId}: ${it.amountInExpenseCurrency}" },
+        currency = currency,
+        creatorUserId = createdBy,
+        pendingUpdateJson = null,
+        imageUrl = null,
+        version = version,
+        splitType = splitType,
+    )
+
+fun ItineraryPointResponse.toDomain(): Event =
+    Event(
+        id = 0,
+        remoteId = id,
+        tripId = tripId,
+        dayIndex = dayIndex,
+        time = startTime ?: "",
+        title = title,
+        subtitle = subtitle.orEmpty(),
+        description = description,
+        duration = duration,
+        cost = cost ?: 0.0,
+        actualCost = actualCost ?: 0.0,
+        status = status,
+        category = category ?: type.orEmpty(),
+        latitude = latitude ?: 0.0,
+        longitude = longitude ?: 0.0,
+        address = address,
+        links = emptyList(),
+        comments = emptyList(),
+        files = emptyList(),
+        participantIds = participantIds,
+        sortOrder = sortOrder,
+        type = type,
+        startTime = startTime,
+        endTime = endTime,
+        version = version,
+        createdBy = createdBy,
+    )
+
+fun ParticipantDetailResponse.toDomain(tripId: String): Participant =
+    Participant(
+        id = 0,
+        tripId = tripId,
+        userId = userId,
+        name = displayName,
+        email = email,
+        role = role,
+        avatarUrl = avatarUrl,
+        joinedAt = joinedAt,
     )
 
 private inline fun <reified T> parseJsonList(

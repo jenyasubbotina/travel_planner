@@ -3,7 +3,7 @@ package org.travelplanner.app.domain
 data class Event(
     val id: Long,
     val remoteId: String?,
-    val tripId: Long,
+    val tripId: String,
     val dayIndex: Int,
     val time: String,
     val title: String,
@@ -21,6 +21,12 @@ data class Event(
     val comments: List<EventComment>,
     val files: List<EventFile>,
     val participantIds: List<String>,
+    val sortOrder: Int = 0,
+    val type: String? = null,
+    val startTime: String? = null,
+    val endTime: String? = null,
+    val version: Long = 0,
+    val createdBy: String = "",
 )
 
 data class EventLink(

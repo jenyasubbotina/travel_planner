@@ -3,23 +3,25 @@ package org.travelplanner.app.domain
 data class Expense(
     val id: Long,
     val remoteId: String?,
-    val tripId: Long,
+    val tripId: String,
     val title: String,
-    val amount: Double,
+    val amount: String,
     val category: String,
     val payerName: String,
-    val date: Long,
+    val date: String,
     val splitDescription: String,
     val currency: String,
     val creatorUserId: String,
     val pendingUpdateJson: String?,
     val imageUrl: String?,
+    val version: Long = 0,
+    val splitType: String = "EQUAL",
 )
 
 data class ExpenseSplit(
     val id: Long,
     val expenseId: Long,
-    val participantId: Long,
-    val amount: Double,
+    val participantId: String,
+    val amount: String,
     val isPaid: Boolean,
 )

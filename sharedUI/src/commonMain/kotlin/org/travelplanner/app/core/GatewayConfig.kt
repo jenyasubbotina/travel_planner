@@ -15,7 +15,6 @@ data class GatewayConfig(
     val useTls: Boolean = false,
 ) {
     val baseUrl: String get() = "${if (useTls) "https" else "http"}://$address"
-    val wsUrl: String get() = "${if (useTls) "wss" else "ws"}://$address"
 
     companion object {
         const val DEFAULT_ADDRESS = "192.168.50.77:8080"
@@ -29,7 +28,6 @@ class GatewayConfigManager(
     val config = _config.asStateFlow()
 
     val baseUrl: String get() = _config.value.baseUrl
-    val wsUrl: String get() = _config.value.wsUrl
 
     init {
         CoroutineScope(Dispatchers.IO).launch {

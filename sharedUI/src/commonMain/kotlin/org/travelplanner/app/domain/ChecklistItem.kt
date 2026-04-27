@@ -2,7 +2,7 @@ package org.travelplanner.app.domain
 
 data class ChecklistItem(
     val id: String,
-    val tripId: Long,
+    val tripId: String,
     val title: String,
     val isGroup: Boolean,
     val ownerUserId: String,
