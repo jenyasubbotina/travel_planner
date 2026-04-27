@@ -17,6 +17,7 @@ sqlDelight = "2.2.1"
 kstore = "1.0.0"
 buildConfig = "5.6.5"
 lifecycleProcess = "2.10.0"
+wormaceptor = "2.2.1"
 
 [libraries]
 
@@ -60,10 +61,17 @@ kstore = { module = "io.github.xxfast:kstore", version.ref = "kstore" }
 kstore-file = { module = "io.github.xxfast:kstore-file", version.ref = "kstore" }
 kstore-storage = { module = "io.github.xxfast:kstore-storage", version.ref = "kstore" }
 
-maplibre-compose = { module = "org.maplibre.compose:maplibre-compose", version = "0.12.1" }
+yandex-mapkit = { module = "com.yandex.android:maps.mobile", version = "4.33.1-lite" }
+wormaceptor-api = { group = "com.github.azikar24.WormaCeptor", name = "api-client", version.ref = "wormaceptor" }
+wormaceptor-impl-persistence = { group = "com.github.azikar24.WormaCeptor", name = "api-impl-persistence", version.ref = "wormaceptor" }
 androidx-lifecycle-process = { group = "androidx.lifecycle", name = "lifecycle-process", version.ref = "lifecycleProcess" }
 
+firebase-bom = { module = "com.google.firebase:firebase-bom", version = "33.7.0" }
+firebase-messaging = { module = "com.google.firebase:firebase-messaging-ktx" }
+
 [plugins]
+
+google-services = { id = "com.google.gms.google-services", version = "4.4.2" }
 
 kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
 compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }

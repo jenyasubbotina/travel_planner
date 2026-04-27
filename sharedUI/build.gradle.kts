@@ -61,8 +61,6 @@ kotlin {
             implementation("io.ktor:ktor-client-cio:$ktorVersion") // Or android
             implementation("io.ktor:ktor-client-websockets:$ktorVersion")
             implementation("io.ktor:ktor-client-logging:$ktorVersion")
-
-            implementation(libs.maplibre.compose)
         }
 
         commonTest.dependencies {
@@ -78,6 +76,8 @@ kotlin {
             implementation(libs.kstore.file)
 
             implementation(libs.androidx.activityCompose)
+
+            implementation(libs.yandex.mapkit)
         }
 
         jvmMain.dependencies {
@@ -86,12 +86,6 @@ kotlin {
             implementation(libs.ktor.client.okhttp)
             implementation(libs.sqlDelight.driver.sqlite)
             implementation(libs.kstore.file)
-
-            runtimeOnly("org.maplibre.compose:maplibre-native-bindings-jni:0.12.1") {
-                capabilities {
-                    requireCapability("org.maplibre.compose:maplibre-native-bindings-jni-windows-amd64-opengl")
-                }
-            }
         }
 
         iosMain.dependencies {
@@ -121,7 +115,7 @@ android {
     namespace = "org.travelplanner.app"
     compileSdk = 36
     defaultConfig {
-        minSdk = 23
+        minSdk = 26
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

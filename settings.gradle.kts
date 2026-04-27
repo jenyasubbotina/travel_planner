@@ -12,6 +12,7 @@ pluginManagement {
         }
         gradlePluginPortal()
         mavenCentral()
+        maven("https://maven.google.com/")
     }
 }
 plugins {
@@ -29,6 +30,9 @@ dependencyResolutionManagement {
             }
         }
         mavenCentral()
+        maven("https://jitpack.io")
+        maven("https://maven.google.com/")
+
     }
 }
 include(":sharedUI")
