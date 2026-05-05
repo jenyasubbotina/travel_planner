@@ -6,19 +6,29 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import coil3.compose.LocalPlatformContext
+import coil3.request.ImageRequest
 import org.koin.compose.koinInject
 import org.travelplanner.app.data.TripRepository
 
 @Composable
-fun rememberResolvedImageUrl(s3KeyOrUrl: String?): String? {
+fun rememberResolvedImageUrl(s3KeyOrUrl: String?): Any? {
     if (s3KeyOrUrl.isNullOrBlank()) return null
     if (s3KeyOrUrl.startsWith("http://") || s3KeyOrUrl.startsWith("https://")) {
         return s3KeyOrUrl
     }
+    val context = LocalPlatformContext.current
     val repo: TripRepository = koinInject()
-    var resolved by remember(s3KeyOrUrl) { mutableStateOf<String?>(null) }
+    var url by remember(s3KeyOrUrl) { mutableStateOf<String?>(null) }
     LaunchedEffect(s3KeyOrUrl) {
-        resolved = runCatching { repo.getDownloadUrl(s3KeyOrUrl) }.getOrNull()
+        url = runCatching { repo.getDownloadUrl(s3KeyOrUrl) }.getOrNull()
     }
-    return resolved
+    return remember(s3KeyOrUrl, url, context) {
+        ImageRequest
+            .Builder(context)
+            .data(url)
+            .memoryCacheKey(s3KeyOrUrl)
+            .diskCacheKey(s3KeyOrUrl)
+            .build()
+    }
 }

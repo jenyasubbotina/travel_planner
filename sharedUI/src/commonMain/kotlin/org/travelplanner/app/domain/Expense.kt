@@ -1,8 +1,7 @@
 package org.travelplanner.app.domain
 
 data class Expense(
-    val id: Long,
-    val remoteId: String?,
+    val id: String,
     val tripId: String,
     val title: String,
     val amount: String,
@@ -20,7 +19,7 @@ data class Expense(
 
 data class ExpenseSplit(
     val id: Long,
-    val expenseId: Long,
+    val expenseId: String,
     val participantId: String,
     val amount: String,
     val isPaid: Boolean,

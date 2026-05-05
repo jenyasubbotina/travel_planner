@@ -6,9 +6,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.json.Json
 import org.travelplanner.app.TripJoinRequestEntity
 import org.travelplanner.app.TripParticipantEntity
 import org.travelplanner.app.core.BackendFeatureFlags
+import org.travelplanner.app.core.ChangeRoleRequest
 import org.travelplanner.app.core.InvitationResponse
 import org.travelplanner.app.core.InviteParticipantRequest
 import org.travelplanner.app.core.TripApiService
@@ -21,7 +23,10 @@ import org.travelplanner.app.domain.toDomain
 class ParticipantRepository(
     private val db: MyDatabase,
     private val api: TripApiService,
+    private val outbox: OutboxRepository,
+    private val syncTrigger: SyncTrigger,
     private val userSession: UserSession,
+    private val json: Json,
 ) {
     private val queries = db.participantsQueries
     private val joinRequestQueries = db.joinRequestsQueries
@@ -33,7 +38,8 @@ class ParticipantRepository(
         getParticipantsEntityFlow(tripId).map { list -> list.map { it.toDomain() } }
 
     fun getPendingRequestsFlow(tripId: String): Flow<List<PendingUser>> =
-        joinRequestQueries.getPendingRequestsForTrip(tripId)
+        joinRequestQueries
+            .getPendingRequestsForTrip(tripId)
             .asFlow()
             .mapToList(Dispatchers.IO)
             .map { rows -> rows.map { it.toPendingUser() } }
@@ -60,7 +66,8 @@ class ParticipantRepository(
                 }
 
                 remoteParticipants.forEach { detail ->
-                    val existing = queries.getParticipantByUserId(tripId, detail.userId).executeAsOneOrNull()
+                    val existing =
+                        queries.getParticipantByUserId(tripId, detail.userId).executeAsOneOrNull()
                     if (existing != null) {
                         queries.updateParticipantDetails(
                             name = detail.displayName,
@@ -89,18 +96,25 @@ class ParticipantRepository(
         }
     }
 
-    fun handleParticipantLeft(tripId: String, userId: String) {
+    fun handleParticipantLeft(
+        tripId: String,
+        userId: String,
+    ) {
         db.transaction {
             queries.updateParticipantRole("LEFT", tripId, userId)
             queries.updateTripParticipantCount(tripId)
         }
     }
 
-    fun getOrCreateParticipantLocal(tripId: String, globalUserId: String): TripParticipantEntity {
+    fun getOrCreateParticipantLocal(
+        tripId: String,
+        globalUserId: String,
+    ): TripParticipantEntity {
         val byId = queries.getParticipantByUserId(tripId, globalUserId).executeAsOneOrNull()
         if (byId != null) return byId
 
-        val byName = queries.getParticipantsForTrip(tripId).executeAsList().find { it.name == globalUserId }
+        val byName =
+            queries.getParticipantsForTrip(tripId).executeAsList().find { it.name == globalUserId }
         if (byName != null) return byName
 
         queries.insertParticipant(
@@ -120,6 +134,37 @@ class ParticipantRepository(
         api.acceptInvitation(invitationId)
     }
 
+    fun changeRole(
+        tripId: String,
+        userId: String,
+        newRole: String,
+    ) {
+        val existing =
+            db.participantsQueries.getParticipantByUserId(tripId, userId).executeAsOneOrNull()
+                ?: return
+        val mutationId = outbox.newMutationId()
+        val request =
+            ChangeRoleRequest(
+                role = newRole,
+                expectedVersion = existing.version,
+                clientMutationId = mutationId,
+            )
+
+        db.transaction {
+            db.participantsQueries.updateParticipantRole(newRole, tripId, userId)
+            outbox.enqueue(
+                tripId = tripId,
+                entityType = OutboxEntityType.PARTICIPANT_ROLE,
+                entityId = "$tripId:$userId",
+                operation = OutboxOperation.UPDATE,
+                payloadJson = json.encodeToString(ChangeRoleRequest.serializer(), request),
+                baseVersion = existing.version,
+                existingMutationId = mutationId,
+            )
+        }
+        syncTrigger.requestSync()
+    }
+
     suspend fun inviteByEmail(
         tripId: String,
         email: String,
@@ -130,12 +175,18 @@ class ParticipantRepository(
             InviteParticipantRequest(email = email.trim(), role = role),
         )
 
-    suspend fun resolveRequest(tripId: String, userId: String, approve: Boolean) {
+    suspend fun resolveRequest(
+        tripId: String,
+        userId: String,
+        approve: Boolean,
+    ) {
         if (!BackendFeatureFlags.JOIN_BY_CODE_ENABLED) return
         api.resolveRequest(tripId, userId, approve)
 
         db.transaction {
-            joinRequestQueries.getPendingRequestsForTrip(tripId).executeAsList()
+            joinRequestQueries
+                .getPendingRequestsForTrip(tripId)
+                .executeAsList()
                 .firstOrNull { it.requesterUserId == userId }
                 ?.let { joinRequestQueries.deleteJoinRequest(it.id) }
         }

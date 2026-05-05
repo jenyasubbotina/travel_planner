@@ -24,7 +24,7 @@ import org.travelplanner.app.features.tripDetails.route.detailed.ui.EventIntent
 private data class LocalUiState(
     val viewMode: ItineraryViewMode = ItineraryViewMode.LIST,
     val selectedDayIndex: Int = 0,
-    val selectedEventId: Long? = null,
+    val selectedEventId: String? = null,
     val isEditorVisible: Boolean = false,
     val editorData: EventEditData = EventEditData(),
 )
@@ -228,7 +228,7 @@ class ItineraryScreenModel(
                         files = emptyList(),
                         participantIds = data.participantIds,
                     )
-                eventsRepository.addEventOnline(tripId, dto)
+                eventsRepository.addEvent(tripId, dto)
             } else {
                 if (originalEvent != null) {
                     val currentDto = originalEvent.toDto()
@@ -247,10 +247,9 @@ class ItineraryScreenModel(
                             longitude = data.longitude ?: currentDto.longitude,
                             participantIds = data.participantIds,
                         )
-                    eventsRepository.updateEventOnline(
+                    eventsRepository.updateEvent(
                         tripId = tripId,
                         eventId = data.eventId,
-                        remoteId = originalEvent.remoteId ?: "",
                         dto = updatedDto,
                     )
                 }

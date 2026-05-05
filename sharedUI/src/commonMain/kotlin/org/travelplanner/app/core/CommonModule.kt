@@ -4,9 +4,16 @@ import kotlinx.serialization.json.Json
 import org.koin.core.qualifier.named
 import org.koin.dsl.module
 import org.travelplanner.app.core.auth.AuthTokenManager
+import org.travelplanner.app.data.BackgroundDrainScheduler
+import org.travelplanner.app.data.DeltaSyncCoordinator
 import org.travelplanner.app.data.EventRepository
 import org.travelplanner.app.data.ExpenseRepository
 import org.travelplanner.app.data.GlobalSyncManager
+import org.travelplanner.app.data.NetworkState
+import org.travelplanner.app.data.NetworkStateHolder
+import org.travelplanner.app.data.OutboxAttachmentStorage
+import org.travelplanner.app.data.OutboxDrainer
+import org.travelplanner.app.data.OutboxRepository
 import org.travelplanner.app.data.ParticipantRepository
 import org.travelplanner.app.data.SyncTrigger
 import org.travelplanner.app.data.TripDetailsScreenModel
@@ -57,47 +64,107 @@ val commonModule =
 
         single { UserSession(authTokenManager = get()) }
 
+        single { SyncTrigger() }
+
+        single { NetworkStateHolder() }
+
         single {
+            val networkStateHolder = get<NetworkStateHolder>()
+            val syncTrigger = get<SyncTrigger>()
             TripApiService(
                 authTokenManager = get(),
                 json = get(),
-                globalNotifier = get(),
                 gateway = get(),
+                onConnectionLost = {
+                    if (networkStateHolder.value != NetworkState.OFFLINE) {
+                        networkStateHolder.value = NetworkState.OFFLINE
+                        syncTrigger.requestSync()
+                    }
+                },
                 httpClientConfig = getOrNull(),
             )
         }
+
+        single { DeltaSyncCoordinator() }
+
+        single { OutboxRepository(db = get(), json = get()) }
 
         single {
             ParticipantRepository(
                 get(),
                 get(),
+                outbox = get(),
+                syncTrigger = get(),
                 userSession = get(),
+                json = get(),
             )
         }
 
-        single { TripRepository(get(), get()) }
+        single {
+            TripRepository(
+                db = get(),
+                api = get(),
+                outbox = get(),
+                attachmentStorage = get<OutboxAttachmentStorage>(),
+                userSession = get(),
+                syncTrigger = get(),
+                json = get(),
+            )
+        }
         single {
             EventRepository(
-                get(),
-                get(),
+                db = get(),
+                api = get(),
+                outbox = get(),
+                attachmentStorage = get<OutboxAttachmentStorage>(),
+                userSession = get(),
+                syncTrigger = get(),
                 json = get(),
             )
         }
 
         single {
             ExpenseRepository(
-                get(),
+                db = get(),
                 api = get(),
                 participantRepo = get(),
+                outbox = get(),
+                attachmentStorage = get<OutboxAttachmentStorage>(),
+                userSession = get(),
+                syncTrigger = get(),
                 json = get(),
             )
         }
 
         single { HistoryRepository(get(), get()) }
 
-        single { ChecklistRepository(get(), get(), json = get()) }
+        single {
+            ChecklistRepository(
+                db = get(),
+                api = get(),
+                outbox = get(),
+                userSession = get(),
+                syncTrigger = get(),
+                json = get(),
+            )
+        }
 
-        single { SyncTrigger() }
+        single {
+            OutboxDrainer(
+                outbox = get(),
+                api = get(),
+                tripRepo = get(),
+                expenseRepo = get(),
+                eventRepo = get(),
+                checklistRepo = get(),
+                attachmentStorage = get<OutboxAttachmentStorage>(),
+                db = get(),
+                syncTrigger = get(),
+                deltaCoordinator = get(),
+                networkState = get<NetworkStateHolder>().state,
+                json = get(),
+            )
+        }
 
         single {
             GlobalSyncManager(
@@ -107,12 +174,16 @@ val commonModule =
                 participantRepo = get(),
                 expenseRepo = get(),
                 eventRepo = get(),
+                outbox = get(),
+                outboxDrainer = get(),
+                backgroundDrainScheduler = get<BackgroundDrainScheduler>(),
+                networkStateHolder = get(),
                 db = get(),
                 syncTrigger = get(),
+                deltaCoordinator = get(),
                 json = get(),
             )
         }
-
 
         factory { (tripId: String) ->
             TripDetailsScreenModel(
@@ -123,6 +194,7 @@ val commonModule =
                 globalSyncManager = get(),
                 checklistRepository = get(),
                 tripRepo = get(),
+                outbox = get(),
             )
         }
 
@@ -146,7 +218,7 @@ val commonModule =
             )
         }
 
-        factory { (tripId: String, eventId: Long) ->
+        factory { (tripId: String, eventId: String) ->
             EventDetailsScreenModel(
                 tripId = tripId,
                 eventId = eventId,
@@ -165,10 +237,11 @@ val commonModule =
                 userSession = get(),
                 participantRepository = get(),
                 tripRepository = get(),
+                globalNotifier = get(),
             )
         }
 
-        factory { (expenseId: Long, tripId: String) ->
+        factory { (expenseId: String, tripId: String) ->
             ExpenseDetailsScreenModel(
                 expenseId,
                 tripId,
@@ -229,6 +302,7 @@ val commonModule =
                 userSession = get(),
                 globalSyncManager = get(),
                 participantRepository = get(),
+                outbox = get(),
             )
         }
         factory {

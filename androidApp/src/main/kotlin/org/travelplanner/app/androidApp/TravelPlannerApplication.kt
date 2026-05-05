@@ -36,8 +36,10 @@ import org.travelplanner.app.core.TripApiService
 import org.travelplanner.app.core.auth.AuthSession
 import org.travelplanner.app.core.auth.AuthTokenManager
 import org.travelplanner.app.core.commonModule
+import org.travelplanner.app.data.BackgroundDrainScheduler
 import org.travelplanner.app.data.GlobalSyncManager
 import org.travelplanner.app.data.NetworkState
+import org.travelplanner.app.data.OutboxAttachmentStorage
 
 class TripApplication : Application() {
     override fun onCreate() {
@@ -70,6 +72,9 @@ class TripApplication : Application() {
             context = this,
             features = Feature.ALL - Feature.MEMORY_MONITOR,
         )
+
+        val backgroundDrainScheduler: BackgroundDrainScheduler = get()
+        backgroundDrainScheduler.schedulePeriodic()
 
         val globalSyncManager: GlobalSyncManager = get()
         val api: TripApiService = get()
@@ -162,4 +167,8 @@ val androidModule =
             val file = Path("${ctx.filesDir.path}/gateway.json")
             GatewayConfigManager(storeOf(file = file, default = GatewayConfig()))
         }
+
+        single { BackgroundDrainScheduler(androidContext()) }
+
+        single { OutboxAttachmentStorage(androidContext()) }
     }

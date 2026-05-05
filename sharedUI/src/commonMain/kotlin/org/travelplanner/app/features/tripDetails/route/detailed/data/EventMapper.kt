@@ -33,7 +33,7 @@ fun TripEventEntity.getParsedFiles(json: Json): List<EventFileDto> {
 
 fun TripEventEntity.toDto(json: Json): EventDto =
     EventDto(
-        id = this.remoteId ?: "",
+        id = this.id,
         tripId = this.tripId,
         dayIndex = this.dayIndex.toInt(),
         time = this.time,
@@ -65,7 +65,7 @@ fun TripEventEntity.getParsedParticipantIds(json: Json): List<String> {
 
 fun Event.toDto(): EventDto =
     EventDto(
-        id = this.remoteId ?: "",
+        id = this.id,
         tripId = this.tripId,
         dayIndex = this.dayIndex,
         time = this.time,

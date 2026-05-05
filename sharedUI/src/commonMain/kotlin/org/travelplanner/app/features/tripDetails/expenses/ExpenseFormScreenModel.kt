@@ -23,7 +23,7 @@ class ExpenseFormScreenModel(
     private val userSession: UserSession,
     private val tripRepository: TripRepository,
 ) : BaseScreenModel<AddExpenseState, ExpenseFormIntent, ExpenseFormEffect>(AddExpenseState()) {
-    private var editingExpenseId: Long? = null
+    private var editingExpenseId: String? = null
 
     override fun handleIntent(intent: ExpenseFormIntent) {
         when (intent) {
@@ -76,7 +76,7 @@ class ExpenseFormScreenModel(
         }
     }
 
-    private fun initialize(expenseId: Long?) {
+    private fun initialize(expenseId: String?) {
         screenModelScope.launch {
             val participants = participantRepository.getParticipantsFlow(tripId).first()
             val currentUser = userSession.currentUser.value
@@ -250,7 +250,7 @@ class ExpenseFormScreenModel(
         screenModelScope.launch {
             try {
                 if (editingExpenseId == null) {
-                    expenseRepository.addExpenseOnline(
+                    expenseRepository.addExpense(
                         tripId = tripId,
                         title = s.description,
                         amount = total,
@@ -260,7 +260,7 @@ class ExpenseFormScreenModel(
                         photoBytes = s.photoBytes,
                     )
                 } else {
-                    expenseRepository.updateExpenseOnline(
+                    expenseRepository.updateExpense(
                         tripId = tripId,
                         expenseLocalId = editingExpenseId!!,
                         title = s.description,

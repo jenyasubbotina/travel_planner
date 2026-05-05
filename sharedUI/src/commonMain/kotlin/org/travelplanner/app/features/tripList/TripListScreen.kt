@@ -47,6 +47,7 @@ import org.travelplanner.app.core.TripUtils.pluralizeDays
 import org.travelplanner.app.core.UserSession
 import org.travelplanner.app.core.rememberResolvedImageUrl
 import org.travelplanner.app.data.GlobalSyncManager
+import org.travelplanner.app.data.NetworkState
 import org.travelplanner.app.data.SyncState
 import org.travelplanner.app.domain.Trip
 import org.travelplanner.app.features.profile.ui.ProfileAvatar
@@ -100,10 +101,11 @@ class TripListScreen : Screen {
                         SyncIndicator(
                             networkState = networkState,
                             syncState = SyncState.UP_TO_DATE,
+                            pendingCount = state.pendingCount,
                             retrySeconds = retryCountdown,
                             currentConfig = gatewayConfig,
                             onConfigSave = { scope.launch { gatewayManager.updateConfig(it) } },
-                        ) { }
+                        )
                         Spacer(Modifier.width(8.dp))
                         ProfileAvatar(userSession = userSession, navigator = navigator)
                         Spacer(Modifier.width(8.dp))
@@ -290,6 +292,7 @@ class TripListScreen : Screen {
                     screenModel.handleIntent(TripListIntent.RequestJoin(code))
                     showJoinDialog = false
                 },
+                isOffline = networkState != NetworkState.ONLINE,
             )
         }
 
@@ -300,6 +303,7 @@ class TripListScreen : Screen {
                     screenModel.handleIntent(TripListIntent.AcceptInvitation(id))
                     showAcceptInvitationDialog = false
                 },
+                isOffline = networkState != NetworkState.ONLINE,
             )
         }
     }

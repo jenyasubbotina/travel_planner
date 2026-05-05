@@ -35,17 +35,17 @@ import org.travelplanner.app.domain.Event
 @Composable
 expect fun ItineraryMap(
     events: List<Event>,
-    selectedEventId: Long?,
-    onSelect: (Long) -> Unit,
+    selectedEventId: String?,
+    onSelect: (String) -> Unit,
     modifier: Modifier = Modifier,
 )
 
 @Composable
 fun ItineraryMapView(
     events: List<Event>,
-    selectedEventId: Long?,
-    onDetailsClick: (Long) -> Unit,
-    onSelect: (Long) -> Unit,
+    selectedEventId: String?,
+    onDetailsClick: (String) -> Unit,
+    onSelect: (String) -> Unit,
 ) {
     Box(modifier = Modifier.fillMaxSize().background(Color(0xFFE5E7EB))) {
         ItineraryMap(
@@ -71,7 +71,7 @@ fun ItineraryMapView(
 @Composable
 private fun SelectedEventCard(
     event: Event,
-    onDetailsClick: (Long) -> Unit,
+    onDetailsClick: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Card(

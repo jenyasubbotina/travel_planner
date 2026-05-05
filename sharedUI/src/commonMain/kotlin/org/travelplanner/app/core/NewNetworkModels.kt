@@ -14,6 +14,8 @@ data class V2CreateTripRequest(
     val totalBudget: String? = null,
     val destination: String? = null,
     val imageUrl: String? = null,
+    val id: String? = null,
+    val clientMutationId: String? = null,
 )
 
 @Serializable
@@ -28,6 +30,7 @@ data class V2UpdateTripRequest(
     val imageUrl: String? = null,
     val status: String? = null,
     val expectedVersion: Long? = null,
+    val clientMutationId: String? = null,
 )
 
 @Serializable
@@ -89,6 +92,8 @@ data class InvitationResponse(
 @Serializable
 data class ChangeRoleRequest(
     val role: String,
+    val expectedVersion: Long? = null,
+    val clientMutationId: String? = null,
 )
 
 // -- Itinerary --
@@ -112,6 +117,8 @@ data class V2CreateItineraryPointRequest(
     val actualCost: Double? = null,
     val status: String? = null,
     val participantIds: List<String>? = null,
+    val id: String? = null,
+    val clientMutationId: String? = null,
 )
 
 @Serializable
@@ -134,6 +141,7 @@ data class V2UpdateItineraryPointRequest(
     val status: String? = null,
     val participantIds: List<String>? = null,
     val expectedVersion: Long? = null,
+    val clientMutationId: String? = null,
 )
 
 @Serializable
@@ -184,6 +192,8 @@ data class PointLinkResponse(
 @Serializable
 data class AddPointCommentRequest(
     val text: String,
+    val id: String? = null,
+    val clientMutationId: String? = null,
 )
 
 @Serializable
@@ -202,6 +212,8 @@ data class PointCommentResponse(
 data class V2CreateChecklistItemRequest(
     val title: String,
     val isGroup: Boolean,
+    val id: String? = null,
+    val clientMutationId: String? = null,
 )
 
 @Serializable
@@ -259,6 +271,8 @@ data class V2CreateExpenseRequest(
     val expenseDate: String,
     val splitType: String = "EQUAL",
     val splits: List<V2ExpenseSplitRequest>,
+    val id: String? = null,
+    val clientMutationId: String? = null,
 )
 
 @Serializable
@@ -279,6 +293,7 @@ data class V2UpdateExpenseRequest(
     val splitType: String? = null,
     val splits: List<V2ExpenseSplitRequest>? = null,
     val expectedVersion: Long? = null,
+    val clientMutationId: String? = null,
 )
 
 @Serializable
@@ -309,7 +324,6 @@ data class V2ExpensePendingUpdateResponse(
     val proposedAt: String,
     val baseVersion: Long,
     val payload: String,
-
     val baseSnapshot: String? = null,
 )
 
@@ -370,6 +384,7 @@ data class PresignUploadRequest(
     val contentType: String,
     val fileSize: Long,
     val tripId: String,
+    val attachmentId: String? = null,
 )
 
 @Serializable
@@ -384,6 +399,8 @@ data class CreateAttachmentRequest(
     val fileSize: Long,
     val mimeType: String,
     val s3Key: String,
+    val id: String? = null,
+    val clientMutationId: String? = null,
 )
 
 @Serializable

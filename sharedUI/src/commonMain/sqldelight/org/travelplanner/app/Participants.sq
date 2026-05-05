@@ -6,7 +6,10 @@ CREATE TABLE tripParticipantEntity (
     email TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'VIEWER',
     joinedAt TEXT,
-    avatarUrl TEXT
+    avatarUrl TEXT,
+    version INTEGER NOT NULL DEFAULT 1,
+    updatedAt TEXT NOT NULL DEFAULT '',
+    deletedAt TEXT
 );
 
 insertParticipant:

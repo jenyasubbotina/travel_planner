@@ -23,7 +23,7 @@ import org.travelplanner.app.features.tripDetails.expenses.domain.ExpenseLogPars
 import org.travelplanner.app.features.tripDetails.history.data.HistoryRepository
 
 class ExpenseDetailsScreenModel(
-    private val expenseId: Long,
+    private val expenseId: String,
     private val tripId: String,
     private val expenseRepository: ExpenseRepository,
     private val participantRepository: ParticipantRepository,
@@ -65,7 +65,7 @@ class ExpenseDetailsScreenModel(
                     val myUserId = currentUser?.id
                     val expenseLogs =
                         logs
-                            .filter { it.entityId == expense.remoteId && it.entityType == "EXPENSE" }
+                            .filter { it.entityId == expense.id && it.entityType == "EXPENSE" }
                             .sortedByDescending { it.timestamp }
 
                     val historyUiModels =
@@ -107,10 +107,11 @@ class ExpenseDetailsScreenModel(
     private fun deleteExpense() {
         screenModelScope.launch {
             val expense = expenseRepository.getExpenseById(expenseId).firstOrNull()
-            if (expense?.remoteId != null) {
-                expenseRepository.deleteExpenseOnline(expense.remoteId, tripId)
+            if (expense != null) {
+                expenseRepository.deleteExpense(expense.id, tripId)
+            } else {
+                expenseRepository.deleteExpense(expenseId, tripId)
             }
-            expenseRepository.deleteExpense(expenseId)
             _isDeleted.value = true
             sendEffect(ExpenseDetailsEffect.NavigateBack)
         }

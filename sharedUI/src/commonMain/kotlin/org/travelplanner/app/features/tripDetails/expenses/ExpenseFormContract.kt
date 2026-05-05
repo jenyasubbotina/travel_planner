@@ -32,7 +32,7 @@ enum class SplitMethod { EQUAL, MANUAL }
 
 sealed interface ExpenseFormIntent : UiIntent {
     data class Initialize(
-        val expenseId: Long? = null,
+        val expenseId: String? = null,
     ) : ExpenseFormIntent
 
     data class AmountChanged(

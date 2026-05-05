@@ -63,7 +63,7 @@ data class EventEditData(
     val longitude: Double? = null,
     val isMapPickerOpen: Boolean = false,
     val dayIndex: Int = 0,
-    val eventId: Long? = null,
+    val eventId: String? = null,
     val participantIds: List<String> = emptyList(),
 )
 

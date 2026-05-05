@@ -8,22 +8,29 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.json.Json
 import org.travelplanner.app.AttachmentEntity
 import org.travelplanner.app.TripEntity
 import org.travelplanner.app.core.AttachmentResponse
 import org.travelplanner.app.core.BackendFeatureFlags
 import org.travelplanner.app.core.TripApiService
 import org.travelplanner.app.core.TripResponse
+import org.travelplanner.app.core.UserSession
 import org.travelplanner.app.core.V2CreateTripRequest
 import org.travelplanner.app.core.V2UpdateTripRequest
-import org.travelplanner.app.core.VersionConflictException
 import org.travelplanner.app.db.MyDatabase
 import org.travelplanner.app.domain.Trip
 import org.travelplanner.app.domain.toDomain
+import kotlin.time.Clock
 
 class TripRepository(
     private val db: MyDatabase,
     private val api: TripApiService,
+    private val outbox: OutboxRepository,
+    private val attachmentStorage: OutboxAttachmentStorage,
+    private val userSession: UserSession,
+    private val syncTrigger: SyncTrigger,
+    private val json: Json,
 ) {
     private val queries = db.tripsQueries
 
@@ -131,56 +138,120 @@ class TripRepository(
         queries.updateTripStatusLocal(status, tripId)
     }
 
-    suspend fun changeTripBudget(
+    fun createTripLocal(request: V2CreateTripRequest): String {
+        val tripId = outbox.newMutationId()
+        val mutationId = outbox.newMutationId()
+        val ownerId =
+            userSession.currentUser.value
+                ?.id
+                .orEmpty()
+        val now = isoNow()
+        val payload =
+            request.copy(
+                id = tripId,
+                clientMutationId = mutationId,
+            )
+
+        db.transaction {
+            queries.insertTripWithId(
+                id = tripId,
+                title = payload.title,
+                destination = payload.destination ?: "",
+                startDate = payload.startDate,
+                endDate = payload.endDate,
+                currency = payload.baseCurrency,
+                totalBudget = payload.totalBudget ?: "0",
+                spentAmount = "0",
+                description = payload.description,
+                participantCount = 1L,
+                status = "PLANNED",
+                joinCode = null,
+                ownerUserId = ownerId,
+                imageUrl = payload.imageUrl,
+                filesJson = null,
+                baseCurrency = payload.baseCurrency,
+                version = 0L,
+                createdBy = ownerId,
+                createdAt = now,
+                updatedAt = now,
+            )
+
+            outbox.enqueue(
+                tripId = tripId,
+                entityType = OutboxEntityType.TRIP,
+                entityId = tripId,
+                operation = OutboxOperation.CREATE,
+                payloadJson = json.encodeToString(V2CreateTripRequest.serializer(), payload),
+                baseVersion = null,
+                existingMutationId = mutationId,
+            )
+        }
+        syncTrigger.requestSync()
+        return tripId
+    }
+
+    private fun updateTripLocal(
+        tripId: String,
+        update: V2UpdateTripRequest,
+        applyLocally: () -> Unit,
+    ) {
+        val existing = queries.getTripById(tripId).executeAsOneOrNull() ?: return
+        val mutationId = outbox.newMutationId()
+        val payload =
+            update.copy(
+                expectedVersion = update.expectedVersion ?: existing.version,
+                clientMutationId = mutationId,
+            )
+
+        db.transaction {
+            applyLocally()
+            outbox.enqueue(
+                tripId = tripId,
+                entityType = OutboxEntityType.TRIP,
+                entityId = tripId,
+                operation = OutboxOperation.UPDATE,
+                payloadJson = json.encodeToString(V2UpdateTripRequest.serializer(), payload),
+                baseVersion = existing.version,
+                existingMutationId = mutationId,
+            )
+        }
+        syncTrigger.requestSync()
+    }
+
+    fun changeTripBudget(
         tripId: String,
         newBudget: String,
     ) {
         val normalised = newBudget.toDoubleOrNull()?.toString() ?: newBudget
-        // Update local first so the UI reflects the change even if the network is flaky.
-        updateTripBudgetLocal(tripId, newBudget)
-        patchTripWithRetry(tripId) { v ->
-            V2UpdateTripRequest(totalBudget = normalised, expectedVersion = v)
+        updateTripLocal(
+            tripId,
+            V2UpdateTripRequest(totalBudget = normalised),
+        ) {
+            queries.updateTripBudgetLocal(newBudget, tripId)
         }
     }
 
-    suspend fun setTripImageUrl(
+    fun setTripImageUrl(
         tripId: String,
         imageUrl: String,
     ) {
-        queries.updateTripImageUrlLocal(imageUrl, tripId)
-        patchTripWithRetry(tripId) { v ->
-            V2UpdateTripRequest(imageUrl = imageUrl, expectedVersion = v)
+        updateTripLocal(
+            tripId,
+            V2UpdateTripRequest(imageUrl = imageUrl),
+        ) {
+            queries.updateTripImageUrlLocal(imageUrl, tripId)
         }
     }
 
-    private suspend fun patchTripWithRetry(
+    fun setTripStatus(
         tripId: String,
-        buildRequest: (expectedVersion: Long) -> V2UpdateTripRequest,
-    ): TripResponse? {
-        val localVersion = queries.getTripById(tripId).executeAsOneOrNull()?.version ?: 0L
-        return try {
-            val response = api.updateTrip(tripId, buildRequest(localVersion))
-            applyServerTripDelta(response)
-            response
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: VersionConflictException) {
-            val freshVersion =
-                runCatching { api.getTrip(tripId).version }.getOrNull()
-                    ?: return null
-            try {
-                val response = api.updateTrip(tripId, buildRequest(freshVersion))
-                applyServerTripDelta(response)
-                response
-            } catch (e2: CancellationException) {
-                throw e2
-            } catch (e2: Exception) {
-                println("[TripRepository] PATCH retry failed for $tripId: ${e2.message}")
-                null
-            }
-        } catch (e: Exception) {
-            println("[TripRepository] PATCH failed for $tripId: ${e.message}")
-            null
+        status: String,
+    ) {
+        updateTripLocal(
+            tripId,
+            V2UpdateTripRequest(status = status),
+        ) {
+            updateTripStatusLocal(tripId, status)
         }
     }
 
@@ -203,6 +274,13 @@ class TripRepository(
     fun deleteTripLocal(tripId: String) = queries.deleteTripLocal(tripId)
 
     fun deleteTripCascade(tripId: String) {
+        val pendingPaths =
+            db.attachmentsQueries
+                .getAttachmentIdAndKeyByTrip(tripId)
+                .executeAsList()
+                .filter { it.s3Key.startsWith("pending://") }
+                .map { it.s3Key.removePrefix("pending://") }
+
         db.transaction {
             db.expensesQueries.deleteExpensesForTrip(tripId)
             db.eventsQueries.deleteEventsForTrip(tripId)
@@ -211,13 +289,13 @@ class TripRepository(
             db.checklistsQueries.deleteChecklistForTrip(tripId)
             db.attachmentsQueries.deleteAttachmentsForTrip(tripId)
             db.syncCursorsQueries.deleteCursor(tripId)
+            outbox.deleteAllForTrip(tripId)
             queries.deleteTripLocal(tripId)
         }
+        pendingPaths.forEach { attachmentStorage.delete(it) }
     }
 
     suspend fun syncTripsFromServer(): List<TripResponse> = api.getTrips()
-
-    suspend fun createTrip(request: V2CreateTripRequest): TripResponse = api.createTrip(request)
 
     suspend fun uploadPhoto(
         tripId: String,
@@ -232,6 +310,64 @@ class TripRepository(
         bytes: ByteArray,
         fileName: String,
     ): AttachmentResponse = api.uploadFile(tripId, bytes, fileName, mimeTypeForFileName(fileName))
+
+    fun enqueueTripFileAttachment(
+        tripId: String,
+        bytes: ByteArray,
+        fileName: String,
+    ): String? {
+        val attachmentId = outbox.newMutationId()
+        val absolutePath =
+            runCatching { attachmentStorage.write(attachmentId, bytes) }
+                .getOrNull() ?: return null
+        val mimeType = mimeTypeForFileName(fileName)
+        val now =
+            kotlin.time.Instant
+                .fromEpochMilliseconds(
+                    kotlin.time.Clock.System
+                        .now()
+                        .toEpochMilliseconds(),
+                ).toString()
+
+        db.transaction {
+            db.attachmentsQueries.insertOrReplaceAttachment(
+                attachmentId,
+                tripId,
+                null,
+                null,
+                userSession.currentUser.value
+                    ?.id
+                    .orEmpty(),
+                fileName,
+                bytes.size.toLong(),
+                mimeType,
+                "pending://$absolutePath",
+                now,
+            )
+
+            val payload =
+                AttachmentOutboxPayload(
+                    attachmentId = attachmentId,
+                    tripId = tripId,
+                    expenseId = null,
+                    pointId = null,
+                    fileName = fileName,
+                    mimeType = mimeType,
+                    fileSizeBytes = bytes.size.toLong(),
+                    localFilePath = absolutePath,
+                )
+            outbox.enqueue(
+                tripId = tripId,
+                entityType = OutboxEntityType.ATTACHMENT,
+                entityId = attachmentId,
+                operation = OutboxOperation.CREATE,
+                payloadJson = json.encodeToString(AttachmentOutboxPayload.serializer(), payload),
+                baseVersion = null,
+            )
+        }
+        syncTrigger.requestSync()
+        return attachmentId
+    }
 
     fun getTripLevelAttachmentsFlow(tripId: String): Flow<List<AttachmentEntity>> =
         db.attachmentsQueries
@@ -264,21 +400,53 @@ class TripRepository(
         }
     }
 
-    suspend fun getDownloadUrl(s3Key: String): String = api.presignDownload(s3Key).url
+    private val downloadUrlCache = mutableMapOf<String, String>()
 
-    suspend fun deleteOrLeaveTrip(tripId: String) {
-        api.deleteTrip(tripId)
-        deleteTripCascade(tripId)
+    suspend fun getDownloadUrl(s3Key: String): String {
+        downloadUrlCache[s3Key]?.let { return it }
+        val url = api.presignDownload(s3Key).url
+        downloadUrlCache[s3Key] = url
+        return url
     }
 
-    suspend fun setTripStatus(
-        tripId: String,
-        status: String,
-    ) {
-        updateTripStatusLocal(tripId, status)
-        patchTripWithRetry(tripId) { v ->
-            V2UpdateTripRequest(status = status, expectedVersion = v)
+    fun deleteOrLeaveTrip(tripId: String) {
+        val existing = queries.getTripById(tripId).executeAsOneOrNull() ?: return
+        val mutationId = outbox.newMutationId()
+        val payloadJson =
+            json.encodeToString(
+                V2UpdateTripRequest.serializer(),
+                V2UpdateTripRequest(clientMutationId = mutationId, expectedVersion = existing.version),
+            )
+
+        val pendingPaths =
+            db.attachmentsQueries
+                .getAttachmentIdAndKeyByTrip(tripId)
+                .executeAsList()
+                .filter { it.s3Key.startsWith("pending://") }
+                .map { it.s3Key.removePrefix("pending://") }
+
+        db.transaction {
+            outbox.deleteAllForTrip(tripId)
+            outbox.enqueue(
+                tripId = tripId,
+                entityType = OutboxEntityType.TRIP,
+                entityId = tripId,
+                operation = OutboxOperation.DELETE,
+                payloadJson = payloadJson,
+                baseVersion = existing.version,
+                existingMutationId = mutationId,
+            )
+            db.expensesQueries.deleteExpensesForTrip(tripId)
+            db.eventsQueries.deleteEventsForTrip(tripId)
+            db.participantsQueries.deleteParticipantsForTrip(tripId)
+            db.historyQueries.deleteLogsForTrip(tripId)
+            db.checklistsQueries.deleteChecklistForTrip(tripId)
+            db.attachmentsQueries.deleteAttachmentsForTrip(tripId)
+            db.syncCursorsQueries.deleteCursor(tripId)
+            queries.deleteTripLocal(tripId)
         }
+        pendingPaths.forEach { attachmentStorage.delete(it) }
+        syncTrigger.requestSync()
     }
 
     suspend fun regenerateCode(tripId: String): String {
@@ -297,4 +465,9 @@ class TripRepository(
         if (!BackendFeatureFlags.JOIN_BY_CODE_ENABLED) return null
         return api.requestJoinTrip(code, userId, name)
     }
+
+    private fun isoNow(): String =
+        kotlin.time.Instant
+            .fromEpochMilliseconds(Clock.System.now().toEpochMilliseconds())
+            .toString()
 }

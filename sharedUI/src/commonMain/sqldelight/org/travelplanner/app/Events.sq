@@ -1,6 +1,5 @@
 CREATE TABLE tripEventEntity (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    remoteId TEXT UNIQUE,
+    id TEXT NOT NULL PRIMARY KEY,
     tripId TEXT NOT NULL,
     dayIndex INTEGER NOT NULL DEFAULT 0,
     time TEXT NOT NULL DEFAULT '',
@@ -28,28 +27,19 @@ CREATE TABLE tripEventEntity (
     createdBy TEXT NOT NULL DEFAULT ''
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS event_remote_id_unique ON tripEventEntity(remoteId);
-
 getEventsForTrip:
 SELECT * FROM tripEventEntity WHERE tripId = ? ORDER BY sortOrder, dayIndex, time ASC;
 
 getEventById:
 SELECT * FROM tripEventEntity WHERE id = ?;
 
-getEventIdByRemoteId:
-SELECT id FROM tripEventEntity WHERE remoteId = ?;
-
 updateEventFull:
 UPDATE tripEventEntity
 SET tripId = ?, dayIndex = ?, time = ?, title = ?, subtitle = ?, description = ?, duration = ?, cost = ?, actualCost = ?, status = ?, category = ?, latitude = ?, longitude = ?, address = ?, linksJson = ?, commentsJson = ?, filesJson = ?, participantIdsJson = ?, type = ?, date = ?, startTime = ?, endTime = ?, sortOrder = ?, version = ?, createdBy = ?
 WHERE id = ?;
 
-insertEvent:
-INSERT INTO tripEventEntity(tripId, dayIndex, time, title, subtitle, description, duration, cost, actualCost, status, category, latitude, longitude, address, linksJson, commentsJson, filesJson, participantIdsJson, type, date, startTime, endTime, sortOrder, version, createdBy)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
-
 insertOrReplaceEvent:
-INSERT OR REPLACE INTO tripEventEntity(remoteId, tripId, dayIndex, time, title, subtitle, description, duration, cost, actualCost, status, category, latitude, longitude, address, linksJson, commentsJson, filesJson, participantIdsJson, type, date, startTime, endTime, sortOrder, version, createdBy)
+INSERT OR REPLACE INTO tripEventEntity(id, tripId, dayIndex, time, title, subtitle, description, duration, cost, actualCost, status, category, latitude, longitude, address, linksJson, commentsJson, filesJson, participantIdsJson, type, date, startTime, endTime, sortOrder, version, createdBy)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 updateEvent:
@@ -60,11 +50,8 @@ WHERE id = ?;
 deleteEvent:
 DELETE FROM tripEventEntity WHERE id = ?;
 
-deleteEventByRemoteId:
-DELETE FROM tripEventEntity WHERE remoteId = ?;
-
-getRemoteIdsForTrip:
-SELECT remoteId FROM tripEventEntity WHERE tripId = ? AND remoteId IS NOT NULL;
+getEventIdsForTrip:
+SELECT id FROM tripEventEntity WHERE tripId = ?;
 
 deleteEventsForTrip:
 DELETE FROM tripEventEntity WHERE tripId = ?;

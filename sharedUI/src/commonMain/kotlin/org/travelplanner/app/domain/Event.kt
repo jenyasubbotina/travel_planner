@@ -1,8 +1,7 @@
 package org.travelplanner.app.domain
 
 data class Event(
-    val id: Long,
-    val remoteId: String?,
+    val id: String,
     val tripId: String,
     val dayIndex: Int,
     val time: String,

@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.travelplanner.app.core.AppUser
+import org.travelplanner.app.core.GlobalNotifier
 import org.travelplanner.app.core.ReactiveScreenModel
 import org.travelplanner.app.core.UserSession
 import org.travelplanner.app.core.toMoneyDouble
@@ -27,6 +28,7 @@ class ExpensesScreenModel(
     private val participantRepository: ParticipantRepository,
     private val tripRepository: TripRepository,
     private val userSession: UserSession,
+    private val globalNotifier: GlobalNotifier,
 ) : ReactiveScreenModel<ExpensesState, ExpensesIntent, ExpensesEffect>() {
     private val _searchQuery = MutableStateFlow("")
     private val _activeCategory = MutableStateFlow("ALL")
@@ -130,32 +132,49 @@ class ExpensesScreenModel(
 
             is ExpensesIntent.ResolveConflict -> {
                 screenModelScope.launch {
-                    expenseRepository.resolveConflictOnline(
-                        intent.tripId,
-                        intent.expenseRemoteId,
-                        intent.accept,
-                    )
+                    runConflictAction {
+                        expenseRepository.resolveConflict(
+                            intent.tripId,
+                            intent.expenseRemoteId,
+                            intent.accept,
+                        )
+                    }
                 }
             }
 
             is ExpensesIntent.MergeConflict -> {
                 screenModelScope.launch {
-                    expenseRepository.mergeConflictOnline(
-                        intent.tripId,
-                        intent.expenseRemoteId,
-                        intent.merged,
-                    )
+                    runConflictAction {
+                        expenseRepository.mergeConflict(
+                            intent.tripId,
+                            intent.expenseRemoteId,
+                            intent.merged,
+                        )
+                    }
                 }
             }
 
             is ExpensesIntent.RevertConflict -> {
                 screenModelScope.launch {
-                    expenseRepository.revertConflictOnline(
-                        intent.tripId,
-                        intent.expenseRemoteId,
-                    )
+                    runConflictAction {
+                        expenseRepository.revertConflict(
+                            intent.tripId,
+                            intent.expenseRemoteId,
+                        )
+                    }
                 }
             }
+        }
+    }
+
+    private suspend inline fun runConflictAction(crossinline block: suspend () -> Unit) {
+        try {
+            block()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            println("[expense-conflict] ${e::class.simpleName}: ${e.message}")
+            globalNotifier.notifyError("Не удалось разрешить конфликт")
         }
     }
 }

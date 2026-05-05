@@ -13,6 +13,7 @@ import org.travelplanner.app.core.UserSession
 import org.travelplanner.app.core.VersionConflictException
 import org.travelplanner.app.core.toEpochMillis
 import org.travelplanner.app.data.GlobalSyncManager
+import org.travelplanner.app.data.OutboxRepository
 import org.travelplanner.app.data.ParticipantRepository
 import org.travelplanner.app.data.TripRepository
 import kotlin.time.Clock
@@ -22,9 +23,12 @@ class TripListScreenModel(
     private val userSession: UserSession,
     private val globalSyncManager: GlobalSyncManager,
     private val participantRepository: ParticipantRepository,
+    private val outbox: OutboxRepository,
 ) : ReactiveScreenModel<TripListState, TripListIntent, TripListEffect>() {
     private val _searchQuery = MutableStateFlow("")
     private val _activeFilter = MutableStateFlow(TripFilter.ALL)
+
+    val networkState = globalSyncManager.networkState
 
     init {
         syncTrips()
@@ -35,7 +39,8 @@ class TripListScreenModel(
             _searchQuery,
             _activeFilter,
             repository.getTripsFlow(),
-        ) { query, filter, allTrips ->
+            outbox.observePendingCount(),
+        ) { query, filter, allTrips, pendingCount ->
             val searchedTrips =
                 if (query.isEmpty()) {
                     allTrips
@@ -59,6 +64,7 @@ class TripListScreenModel(
                 trips = filteredTrips,
                 searchQuery = query,
                 activeFilter = filter,
+                pendingCount = pendingCount,
             )
         }.stateIn(
             scope = screenModelScope,

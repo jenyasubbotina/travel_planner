@@ -1,6 +1,8 @@
 package org.travelplanner.app.data
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.Job
@@ -10,6 +12,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import org.travelplanner.app.core.DeltaResponse
@@ -30,6 +34,31 @@ import kotlin.time.Clock
 
 enum class NetworkState { CONNECTING, ONLINE, OFFLINE }
 
+class NetworkStateHolder {
+    private val _state = MutableStateFlow(NetworkState.OFFLINE)
+    val state: kotlinx.coroutines.flow.StateFlow<NetworkState> = _state.asStateFlow()
+    internal var value: NetworkState
+        get() = _state.value
+        set(v) {
+            _state.value = v
+        }
+}
+
+class DeltaSyncCoordinator {
+    private val mutex = Mutex()
+    private val waitersByTrip = mutableMapOf<String, CompletableDeferred<Unit>>()
+
+    suspend fun awaitNextDeltaForTrip(tripId: String): Deferred<Unit> =
+        mutex.withLock {
+            waitersByTrip.getOrPut(tripId) { CompletableDeferred() }
+        }
+
+    suspend fun completeNextDeltaForTrip(tripId: String) {
+        val d = mutex.withLock { waitersByTrip.remove(tripId) }
+        d?.complete(Unit)
+    }
+}
+
 class GlobalSyncManager(
     private val userSession: UserSession,
     private val api: TripApiService,
@@ -37,12 +66,18 @@ class GlobalSyncManager(
     private val participantRepo: ParticipantRepository,
     private val expenseRepo: ExpenseRepository,
     private val eventRepo: EventRepository,
+    private val outbox: OutboxRepository,
+    private val outboxDrainer: OutboxDrainer,
+    private val backgroundDrainScheduler: BackgroundDrainScheduler,
+    private val networkStateHolder: NetworkStateHolder,
     private val db: MyDatabase,
     private val syncTrigger: SyncTrigger,
+    private val deltaCoordinator: DeltaSyncCoordinator,
     private val json: Json,
 ) {
-    private val _networkState = MutableStateFlow(NetworkState.OFFLINE)
-    val networkState = _networkState.asStateFlow()
+    private val _networkState
+        get() = networkStateHolder
+    val networkState = networkStateHolder.state
 
     private val _retryCountdown = MutableStateFlow<Int?>(null)
     val retryCountdown = _retryCountdown.asStateFlow()
@@ -85,6 +120,19 @@ class GlobalSyncManager(
                             }
                             api.currentDeviceId = null
                         }
+                        try {
+                            outbox.deleteAll()
+                            db.syncCursorsQueries.deleteAllCursors()
+                        } catch (_: Exception) {
+                        }
+                        try {
+                            outboxDrainer.cancelRebases()
+                        } catch (_: Exception) {
+                        }
+                        try {
+                            backgroundDrainScheduler.cancelAll()
+                        } catch (_: Exception) {
+                        }
                         _networkState.value = NetworkState.OFFLINE
                     }
                 }
@@ -95,6 +143,17 @@ class GlobalSyncManager(
         _networkState.value = NetworkState.CONNECTING
         _retryCountdown.value = null
         var consecutiveFailures = 0
+
+        try {
+            outboxDrainer.reclaim()
+        } catch (e: Exception) {
+            println("[Sync] outbox reclaim failed: ${e.message}")
+        }
+        try {
+            outbox.clearAllBackoff()
+        } catch (e: Exception) {
+            println("[Sync] outbox clearAllBackoff failed: ${e.message}")
+        }
 
         while (true) {
             val healthy =
@@ -129,6 +188,12 @@ class GlobalSyncManager(
         consecutiveFailures = 0
 
         try {
+            outboxDrainer.drainAllEligible()
+        } catch (e: Exception) {
+            println("[Sync] initial outbox drain failed: ${e.message}")
+        }
+
+        try {
             performFullSync()
         } catch (e: Exception) {
             println("Initial sync failed: ${e.message}")
@@ -152,6 +217,12 @@ class GlobalSyncManager(
                     _networkState.value = NetworkState.OFFLINE
                     api.isOffline = true
                     return startSyncLoop()
+                }
+
+                try {
+                    outboxDrainer.drainAllEligible()
+                } catch (e: Exception) {
+                    println("[Sync] outbox drain failed: ${e.message}")
                 }
 
                 if (triggered || knownTrips.isEmpty()) {
@@ -189,6 +260,7 @@ class GlobalSyncManager(
                     applyDelta(trip.id, delta)
                     persistCursor(trip.id, delta.cursor, trip.version)
                 }
+                deltaCoordinator.completeNextDeltaForTrip(trip.id)
             } catch (e: Exception) {
                 println("[Sync] FAIL tripId=${trip.id}: ${e.message}")
                 e.printStackTrace()
@@ -208,6 +280,7 @@ class GlobalSyncManager(
                 logDelta(delta)
                 applyDelta(trip.id, delta)
                 persistCursor(trip.id, delta.cursor, trip.version)
+                deltaCoordinator.completeNextDeltaForTrip(trip.id)
             } catch (e: Exception) {
                 println("[Sync] FAIL tripId=${trip.id}: ${e.message}")
                 e.printStackTrace()
@@ -302,6 +375,7 @@ class GlobalSyncManager(
                     isGroup = if (item.isGroup) 1L else 0L,
                     ownerUserId = item.ownerUserId,
                     completedByJson = json.encodeToString(item.completedBy),
+                    version = 1L,
                 )
             }
         }
@@ -330,21 +404,25 @@ class GlobalSyncManager(
             authoritativeForAllPoints = true,
         )
 
-        val localEventRemoteIds = db.eventsQueries.getRemoteIdsForTrip(tripId).executeAsList()
-        localEventRemoteIds.filter { it !in snapshotEventIds }.forEach { orphanId ->
-            eventRepo.deleteEventByRemoteId(orphanId)
+        val localEventIds = db.eventsQueries.getEventIdsForTrip(tripId).executeAsList()
+        localEventIds.filter { it !in snapshotEventIds }.forEach { orphanId ->
+            eventRepo.deleteEventLocal(orphanId)
         }
 
-        val localExpenseRemoteIds = db.expensesQueries.getRemoteIdsForTrip(tripId).executeAsList()
-        localExpenseRemoteIds.filter { it !in snapshotExpenseIds }.forEach { orphanId ->
-            expenseRepo.deleteExpenseByRemoteIdLocal(orphanId, tripId)
+        val localExpenseIds =
+            db.expensesQueries
+                .getExpensesForTrip(tripId)
+                .executeAsList()
+                .map { it.id }
+        localExpenseIds.filter { it !in snapshotExpenseIds }.forEach { orphanId ->
+            expenseRepo.deleteExpenseLocal(orphanId, tripId)
         }
 
-        val localAttachmentIds =
-            db.attachmentsQueries.getAttachmentIdsByTrip(tripId).executeAsList()
-        localAttachmentIds.filter { it !in snapshotAttachmentIds }.forEach { orphanId ->
-            db.attachmentsQueries.deleteAttachment(orphanId)
-        }
+        val localAttachments =
+            db.attachmentsQueries.getAttachmentIdAndKeyByTrip(tripId).executeAsList()
+        localAttachments
+            .filter { row -> !row.s3Key.startsWith("pending://") && row.id !in snapshotAttachmentIds }
+            .forEach { row -> db.attachmentsQueries.deleteAttachment(row.id) }
         val localChecklistIds =
             checklistQueries.getChecklistForTrip(tripId).executeAsList().map { it.id }
         localChecklistIds.filter { it !in snapshotChecklistIds }.forEach { orphanId ->
@@ -364,7 +442,7 @@ class GlobalSyncManager(
     ) {
         delta.itineraryPoints.forEach { point ->
             if (point.deletedAt != null) {
-                eventRepo.deleteEventByRemoteId(point.id)
+                eventRepo.deleteEventLocal(point.id)
             } else {
                 eventRepo.saveEventFromResponse(tripId, point)
             }
@@ -372,7 +450,7 @@ class GlobalSyncManager(
 
         delta.expenses.forEach { expense ->
             if (expense.deletedAt != null) {
-                expenseRepo.deleteExpenseByRemoteIdLocal(expense.id, tripId)
+                expenseRepo.deleteExpenseLocal(expense.id, tripId)
             } else {
                 expenseRepo.upsertExpenseFromResponse(tripId, expense)
             }
@@ -440,6 +518,7 @@ class GlobalSyncManager(
                     isGroup = if (item.isGroup) 1L else 0L,
                     ownerUserId = item.ownerUserId,
                     completedByJson = json.encodeToString(item.completedBy),
+                    version = 1L,
                 )
             }
         }
@@ -509,11 +588,8 @@ class GlobalSyncManager(
 
         db.transaction {
             for (pointId in pointsToUpdate) {
-                val existingId =
-                    eventsQueries.getEventIdByRemoteId(pointId).executeAsOneOrNull()
-                        ?: continue
                 val entity =
-                    eventsQueries.getEventById(existingId).executeAsOneOrNull()
+                    eventsQueries.getEventById(pointId).executeAsOneOrNull()
                         ?: continue
 
                 val linksDto =
@@ -524,7 +600,10 @@ class GlobalSyncManager(
                             userId = it.authorUserId,
                             userName = it.authorDisplayName,
                             text = it.text,
-                            timestamp = runCatching { isoToEpochMillis(it.createdAt) }.getOrDefault(0L),
+                            timestamp =
+                                runCatching { isoToEpochMillis(it.createdAt) }.getOrDefault(
+                                    0L,
+                                ),
                         )
                     }
 
@@ -559,7 +638,7 @@ class GlobalSyncManager(
                     commentsJson = newCommentsJson,
                     filesJson = entity.filesJson,
                     participantIdsJson = entity.participantIdsJson,
-                    id = existingId,
+                    id = pointId,
                 )
             }
         }

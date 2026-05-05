@@ -16,13 +16,19 @@ import androidx.compose.ui.platform.LocalView
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.azikar24.wormaceptor.api.WormaCeptorApi
+import org.koin.android.ext.android.inject
 import org.travelplanner.app.TripPlannerApp
+import org.travelplanner.app.data.BackgroundDrainScheduler
+import org.travelplanner.app.data.OutboxRepository
 
 class AppActivity : ComponentActivity() {
     private val requestNotificationPermission =
         registerForActivityResult(
             ActivityResultContracts.RequestPermission(),
         ) { }
+
+    private val outbox: OutboxRepository by inject()
+    private val backgroundDrainScheduler: BackgroundDrainScheduler by inject()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -36,6 +42,16 @@ class AppActivity : ComponentActivity() {
             MaterialTheme {
                 TripPlannerApp()
             }
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        try {
+            if (outbox.hasAnyPending()) {
+                backgroundDrainScheduler.scheduleOneShot()
+            }
+        } catch (_: Exception) {
         }
     }
 

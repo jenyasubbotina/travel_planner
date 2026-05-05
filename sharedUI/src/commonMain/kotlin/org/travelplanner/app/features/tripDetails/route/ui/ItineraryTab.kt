@@ -298,8 +298,8 @@ fun ItineraryListView(
     currency: String,
     onEdit: (Event) -> Unit,
     onAddEventClick: () -> Unit,
-    onMapClick: (Long) -> Unit,
-    onEventClick: (Long) -> Unit,
+    onMapClick: (String) -> Unit,
+    onEventClick: (String) -> Unit,
 ) {
     if (events.isEmpty()) {
         Box(
@@ -352,8 +352,8 @@ fun EventListItem(
     isFirst: Boolean,
     isLast: Boolean,
     onEdit: (Event) -> Unit,
-    onMapClick: (Long) -> Unit,
-    onEventClick: (Long) -> Unit,
+    onMapClick: (String) -> Unit,
+    onEventClick: (String) -> Unit,
 ) {
     Box(
         modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Max),

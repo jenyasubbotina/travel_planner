@@ -6,11 +6,9 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.filterNotNull
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import org.travelplanner.app.core.BackendApiException
 import org.travelplanner.app.core.GlobalNotifier
@@ -21,7 +19,6 @@ import org.travelplanner.app.core.toEpochMillis
 import org.travelplanner.app.data.EventRepository
 import org.travelplanner.app.data.ExpenseRepository
 import org.travelplanner.app.data.GlobalSyncManager
-import org.travelplanner.app.data.NetworkState
 import org.travelplanner.app.data.ParticipantRepository
 import org.travelplanner.app.data.TripRepository
 import org.travelplanner.app.domain.MediaType
@@ -185,7 +182,6 @@ class MoreTabScreenModel(
     )
 
     init {
-        // One-shot bootstrap on entry — FCM-driven syncTrigger handles ongoing updates.
         screenModelScope.launch {
             try {
                 participantRepository.syncParticipants(tripId)
@@ -299,19 +295,33 @@ class MoreTabScreenModel(
         approve: Boolean,
     ) {
         screenModelScope.launch {
-            participantRepository.resolveRequest(tripId, userId, approve)
-            if (approve) {
-                try {
-                    participantRepository.syncParticipants(tripId)
-                } catch (_: Exception) {
+            try {
+                participantRepository.resolveRequest(tripId, userId, approve)
+                if (approve) {
+                    try {
+                        participantRepository.syncParticipants(tripId)
+                    } catch (_: Exception) {
+                    }
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                println("[resolveRequest] ${e::class.simpleName}: ${e.message}")
+                globalNotifier.notifyError("Не удалось обработать заявку")
             }
         }
     }
 
     private fun regenerateCode() {
         screenModelScope.launch {
-            tripRepository.regenerateCode(tripId)
+            try {
+                tripRepository.regenerateCode(tripId)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                println("[regenerateCode] ${e::class.simpleName}: ${e.message}")
+                globalNotifier.notifyError("Не удалось обновить код")
+            }
         }
     }
 
@@ -334,12 +344,7 @@ class MoreTabScreenModel(
     ) {
         screenModelScope.launch {
             try {
-                withTimeout(10_000) {
-                    globalSyncManager.networkState.first { it == NetworkState.ONLINE }
-                }
-
-                val attachment = tripRepository.uploadFile(tripId, bytes, fileName)
-                tripRepository.saveAttachmentLocally(attachment)
+                tripRepository.enqueueTripFileAttachment(tripId, bytes, fileName)
             } catch (e: Exception) {
                 e.printStackTrace()
             }

@@ -1,0 +1,192 @@
+DROP TABLE IF EXISTS expenseHistoryEntity;
+DROP TABLE IF EXISTS expenseSplitEntity;
+DROP TABLE IF EXISTS tripExpenseEntity;
+DROP TABLE IF EXISTS tripEventEntity;
+DROP TABLE IF EXISTS tripParticipantEntity;
+DROP TABLE IF EXISTS tripChecklistEntity;
+DROP TABLE IF EXISTS attachmentEntity;
+DROP TABLE IF EXISTS tripJoinRequestEntity;
+DROP TABLE IF EXISTS tripEntity;
+DROP TABLE IF EXISTS syncCursorEntity;
+DROP TABLE IF EXISTS HistoryLogEntity;
+DROP TABLE IF EXISTS outboxEntry;
+DROP TABLE IF EXISTS outboxSequence;
+
+CREATE TABLE tripEntity (
+    id TEXT NOT NULL PRIMARY KEY,
+    title TEXT NOT NULL,
+    destination TEXT NOT NULL DEFAULT '',
+    startDate TEXT,
+    endDate TEXT,
+    currency TEXT NOT NULL,
+    totalBudget TEXT NOT NULL DEFAULT '0',
+    spentAmount TEXT NOT NULL DEFAULT '0',
+    description TEXT,
+    participantCount INTEGER NOT NULL DEFAULT 1,
+    status TEXT NOT NULL DEFAULT 'PLANNED',
+    joinCode TEXT,
+    ownerUserId TEXT NOT NULL,
+    imageUrl TEXT,
+    filesJson TEXT,
+    baseCurrency TEXT NOT NULL DEFAULT 'USD',
+    version INTEGER NOT NULL DEFAULT 0,
+    createdBy TEXT NOT NULL DEFAULT '',
+    createdAt TEXT,
+    updatedAt TEXT
+);
+
+CREATE TABLE tripExpenseEntity (
+    id TEXT NOT NULL PRIMARY KEY,
+    tripId TEXT NOT NULL,
+    title TEXT NOT NULL,
+    amount TEXT NOT NULL,
+    category TEXT NOT NULL,
+    payerName TEXT NOT NULL,
+    date TEXT NOT NULL,
+    splitDescription TEXT NOT NULL,
+    currency TEXT NOT NULL,
+    creatorUserId TEXT NOT NULL,
+    pendingUpdateJson TEXT,
+    imageUrl TEXT,
+    version INTEGER NOT NULL DEFAULT 0,
+    splitType TEXT NOT NULL DEFAULT 'EQUAL'
+);
+
+CREATE TABLE expenseSplitEntity (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    expenseId TEXT NOT NULL,
+    participantId TEXT NOT NULL,
+    amount TEXT NOT NULL,
+    isPaid INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY(expenseId) REFERENCES tripExpenseEntity(id) ON DELETE CASCADE
+);
+
+CREATE TABLE expenseHistoryEntity (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    expenseId TEXT NOT NULL,
+    actionTitle TEXT NOT NULL,
+    actionSubtitle TEXT NOT NULL,
+    timestamp INTEGER NOT NULL,
+    FOREIGN KEY(expenseId) REFERENCES tripExpenseEntity(id) ON DELETE CASCADE
+);
+
+CREATE TABLE tripEventEntity (
+    id TEXT NOT NULL PRIMARY KEY,
+    tripId TEXT NOT NULL,
+    dayIndex INTEGER NOT NULL DEFAULT 0,
+    time TEXT NOT NULL DEFAULT '',
+    title TEXT NOT NULL,
+    subtitle TEXT NOT NULL DEFAULT '',
+    description TEXT,
+    duration TEXT,
+    cost REAL DEFAULT 0.0,
+    actualCost REAL DEFAULT 0.0,
+    status TEXT DEFAULT 'NONE',
+    category TEXT DEFAULT 'OTHER',
+    latitude REAL DEFAULT 0.0,
+    longitude REAL DEFAULT 0.0,
+    address TEXT,
+    linksJson TEXT DEFAULT '[]',
+    commentsJson TEXT DEFAULT '[]',
+    filesJson TEXT DEFAULT '[]',
+    participantIdsJson TEXT DEFAULT '[]',
+    type TEXT,
+    date TEXT,
+    startTime TEXT,
+    endTime TEXT,
+    sortOrder INTEGER NOT NULL DEFAULT 0,
+    version INTEGER NOT NULL DEFAULT 0,
+    createdBy TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE tripParticipantEntity (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tripId TEXT NOT NULL,
+    userId TEXT NOT NULL,
+    name TEXT NOT NULL,
+    email TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'VIEWER',
+    joinedAt TEXT,
+    avatarUrl TEXT,
+    version INTEGER NOT NULL DEFAULT 1,
+    updatedAt TEXT NOT NULL DEFAULT '',
+    deletedAt TEXT
+);
+
+CREATE TABLE tripChecklistEntity (
+    id TEXT NOT NULL PRIMARY KEY,
+    tripId TEXT NOT NULL,
+    title TEXT NOT NULL,
+    isGroup INTEGER NOT NULL DEFAULT 0,
+    ownerUserId TEXT NOT NULL,
+    completedByJson TEXT NOT NULL DEFAULT '[]',
+    version INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE attachmentEntity (
+    id TEXT NOT NULL PRIMARY KEY,
+    tripId TEXT NOT NULL,
+    expenseId TEXT,
+    pointId TEXT,
+    uploadedBy TEXT NOT NULL,
+    fileName TEXT NOT NULL,
+    fileSize INTEGER NOT NULL,
+    mimeType TEXT NOT NULL,
+    s3Key TEXT NOT NULL,
+    createdAt TEXT NOT NULL
+);
+
+CREATE TABLE tripJoinRequestEntity (
+    id TEXT NOT NULL PRIMARY KEY,
+    tripId TEXT NOT NULL,
+    requesterUserId TEXT NOT NULL,
+    displayName TEXT NOT NULL,
+    email TEXT NOT NULL,
+    createdAt TEXT NOT NULL DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS idx_join_request_trip ON tripJoinRequestEntity(tripId);
+
+CREATE TABLE syncCursorEntity (
+    tripId TEXT NOT NULL PRIMARY KEY,
+    cursor TEXT NOT NULL,
+    tripVersion INTEGER NOT NULL DEFAULT 0,
+    updatedAt INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE HistoryLogEntity (
+    id TEXT NOT NULL PRIMARY KEY,
+    tripId TEXT NOT NULL,
+    userId TEXT NOT NULL,
+    actionType TEXT NOT NULL,
+    entityType TEXT NOT NULL,
+    entityId TEXT NOT NULL,
+    details TEXT NOT NULL,
+    timestamp INTEGER NOT NULL
+);
+
+CREATE TABLE outboxEntry (
+    id TEXT NOT NULL PRIMARY KEY,
+    tripId TEXT NOT NULL,
+    entityType TEXT NOT NULL,
+    entityId TEXT NOT NULL,
+    operation TEXT NOT NULL,
+    payloadJson TEXT NOT NULL,
+    baseVersion INTEGER,
+    sequenceNumber INTEGER NOT NULL,
+    state TEXT NOT NULL DEFAULT 'PENDING',
+    attemptCount INTEGER NOT NULL DEFAULT 0,
+    rebaseAttempts INTEGER NOT NULL DEFAULT 0,
+    lastError TEXT,
+    nextRetryAt INTEGER,
+    createdAt INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS outbox_trip_state_seq ON outboxEntry(tripId, state, sequenceNumber);
+CREATE INDEX IF NOT EXISTS outbox_entity ON outboxEntry(entityType, entityId);
+CREATE INDEX IF NOT EXISTS outbox_next_retry ON outboxEntry(nextRetryAt);
+
+CREATE TABLE outboxSequence (
+    tripId TEXT NOT NULL PRIMARY KEY,
+    nextValue INTEGER NOT NULL DEFAULT 1
+);

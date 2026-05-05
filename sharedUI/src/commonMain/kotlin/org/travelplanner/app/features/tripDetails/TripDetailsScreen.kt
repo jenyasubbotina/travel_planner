@@ -147,10 +147,21 @@ data class TripDetailsScreen(
                             SyncIndicator(
                                 networkState = networkState,
                                 syncState = tripSyncState.syncState,
+                                pendingCount = tripSyncState.pendingCount,
+                                conflicts = tripSyncState.conflicts,
+                                deadEntries = tripSyncState.deadEntries,
+                                depthAlert = tripSyncState.depthAlert,
                                 retrySeconds = retryCountdown,
                                 currentConfig = gatewayConfig,
                                 onConfigSave = { scope.launch { gatewayManager.updateConfig(it) } },
-                            ) { screenModel.handleIntent(TripDetailsIntent.PerformSync) }
+                                onRetrySync = { screenModel.handleIntent(TripDetailsIntent.PerformSync) },
+                                onDiscardDeadEntry = { entryId ->
+                                    screenModel.handleIntent(TripDetailsIntent.DiscardDeadEntry(entryId))
+                                },
+                                onRetryDeadEntry = { entryId ->
+                                    screenModel.handleIntent(TripDetailsIntent.RetryEntry(entryId))
+                                },
+                            )
                             Spacer(Modifier.width(8.dp))
                             ProfileAvatar(userSession = userSession, navigator = navigator)
                             Spacer(Modifier.width(8.dp))

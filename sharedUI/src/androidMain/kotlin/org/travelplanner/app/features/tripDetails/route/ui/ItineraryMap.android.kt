@@ -28,8 +28,8 @@ import org.travelplanner.app.domain.Event
 @Composable
 actual fun ItineraryMap(
     events: List<Event>,
-    selectedEventId: Long?,
-    onSelect: (Long) -> Unit,
+    selectedEventId: String?,
+    onSelect: (String) -> Unit,
     modifier: Modifier,
 ) {
     val context = LocalContext.current
@@ -41,13 +41,13 @@ actual fun ItineraryMap(
             mapView.mapWindow.map.mapObjects
                 .addCollection()
         }
-    val placemarks = remember { mutableMapOf<Long, PlacemarkMapObject>() }
+    val placemarks = remember { mutableMapOf<String, PlacemarkMapObject>() }
 
     val currentOnSelect by rememberUpdatedState(onSelect)
     val tapListener =
         remember {
             MapObjectTapListener { mapObject: MapObject, _ ->
-                (mapObject.userData as? Long)?.let(currentOnSelect)
+                (mapObject.userData as? String)?.let(currentOnSelect)
                 true
             }
         }

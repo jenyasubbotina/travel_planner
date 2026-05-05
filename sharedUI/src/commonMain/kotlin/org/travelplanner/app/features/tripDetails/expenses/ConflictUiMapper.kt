@@ -123,7 +123,7 @@ internal fun ResolvedPayloads.toUi(
         if (mineIsProposer) expense.creatorUserId to displayName(expense.creatorUserId) else proposerUserId to proposerName
 
     return ExpenseConflictUi(
-        expenseShortId = expense.remoteId?.take(8).orEmpty(),
+        expenseShortId = expense.id.take(8),
         title = expense.title,
         conflictAtFormatted = formatIso(proposedAtIso),
         mine =

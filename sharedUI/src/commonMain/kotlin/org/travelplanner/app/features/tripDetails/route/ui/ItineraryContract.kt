@@ -17,7 +17,7 @@ data class ItineraryState(
     val tripStartDate: Long = System.now().toEpochMilliseconds(),
     val dayCount: Int = 1,
     val eventsCountByDay: Map<Int, Int> = emptyMap(),
-    val selectedEventId: Long? = null,
+    val selectedEventId: String? = null,
     val isEditorVisible: Boolean = false,
     val editorData: EventEditData = EventEditData(),
     val participants: List<Participant> = emptyList(),
@@ -34,7 +34,7 @@ sealed interface ItineraryIntent : UiIntent {
     ) : ItineraryIntent
 
     data class NavigateToEventOnMap(
-        val eventId: Long,
+        val eventId: String,
     ) : ItineraryIntent
 
     data object CreateNewEvent : ItineraryIntent

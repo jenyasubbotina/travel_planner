@@ -31,7 +31,7 @@ private data class LocalUiState(
 
 class EventDetailsScreenModel(
     private val tripId: String,
-    private val eventId: Long,
+    private val eventId: String,
     private val eventRepository: EventRepository,
     private val participantRepository: ParticipantRepository,
     private val userSession: UserSession,
@@ -42,11 +42,7 @@ class EventDetailsScreenModel(
 
     init {
         screenModelScope.launch {
-            val entity = eventRepository.getEventFlow(eventId).firstOrNull { it != null }
-            val remoteId = entity?.remoteId.orEmpty()
-            if (remoteId.isNotBlank()) {
-                eventRepository.refreshPointFiles(tripId, remoteId)
-            }
+            eventRepository.refreshPointFiles(tripId, eventId)
         }
     }
 
@@ -190,11 +186,9 @@ class EventDetailsScreenModel(
         mimeType: String,
         category: String,
     ) {
-        val entity = state.value.event ?: return
-        val remoteId = entity.remoteId ?: return
         screenModelScope.launch {
             try {
-                eventRepository.uploadPointFile(tripId, remoteId, bytes, fileName, mimeType)
+                eventRepository.uploadPointFile(tripId, eventId, bytes, fileName, mimeType)
             } catch (t: Throwable) {
                 t.printStackTrace()
             }
@@ -222,10 +216,9 @@ class EventDetailsScreenModel(
                         longitude = edit.longitude ?: currentDto.longitude,
                         participantIds = edit.participantIds,
                     )
-                eventRepository.updateEventOnline(
+                eventRepository.updateEvent(
                     tripId,
                     eventId,
-                    entity.remoteId ?: "",
                     updatedDto,
                 )
                 _localUiState.update { it.copy(isEditing = false) }
@@ -238,12 +231,10 @@ class EventDetailsScreenModel(
     }
 
     private fun addComment(text: String) {
-        val entity = state.value.event ?: return
-        val remoteId = entity.remoteId ?: return
         if (text.isBlank()) return
         screenModelScope.launch {
             try {
-                eventRepository.addPointComment(tripId, remoteId, text)
+                eventRepository.addPointComment(tripId, eventId, text)
             } catch (t: Throwable) {
                 t.printStackTrace()
             }
@@ -254,12 +245,10 @@ class EventDetailsScreenModel(
         title: String,
         url: String,
     ) {
-        val entity = state.value.event ?: return
-        val remoteId = entity.remoteId ?: return
         if (title.isBlank() || url.isBlank()) return
         screenModelScope.launch {
             try {
-                eventRepository.addPointLink(tripId, remoteId, title, url)
+                eventRepository.addPointLink(tripId, eventId, title, url)
             } catch (t: Throwable) {
                 t.printStackTrace()
             }
@@ -267,9 +256,8 @@ class EventDetailsScreenModel(
     }
 
     private fun deleteEvent() {
-        val entity = state.value.event ?: return
         screenModelScope.launch {
-            eventRepository.deleteEventOnline(tripId, eventId, entity.remoteId)
+            eventRepository.deleteEvent(tripId, eventId)
             sendEffect(EventEffect.PopScreen)
         }
     }

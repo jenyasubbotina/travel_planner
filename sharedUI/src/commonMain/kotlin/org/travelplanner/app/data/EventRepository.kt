@@ -3,10 +3,6 @@ package org.travelplanner.app.data
 import app.cash.sqldelight.coroutines.asFlow
 import app.cash.sqldelight.coroutines.mapToList
 import app.cash.sqldelight.coroutines.mapToOneOrNull
-import io.ktor.client.HttpClient
-import io.ktor.client.request.header
-import io.ktor.client.request.put
-import io.ktor.client.request.setBody
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
@@ -17,11 +13,9 @@ import org.travelplanner.app.TripEventEntity
 import org.travelplanner.app.core.AddPointCommentRequest
 import org.travelplanner.app.core.AddPointLinkRequest
 import org.travelplanner.app.core.BackendFeatureFlags
-import org.travelplanner.app.core.CreateAttachmentRequest
 import org.travelplanner.app.core.ItineraryPointResponse
-import org.travelplanner.app.core.PresignUploadRequest
 import org.travelplanner.app.core.TripApiService
-import org.travelplanner.app.core.TripUtils.isoToEpochMillis
+import org.travelplanner.app.core.UserSession
 import org.travelplanner.app.core.V2CreateItineraryPointRequest
 import org.travelplanner.app.core.V2UpdateItineraryPointRequest
 import org.travelplanner.app.db.MyDatabase
@@ -31,6 +25,7 @@ import org.travelplanner.app.features.tripDetails.route.detailed.data.EventComme
 import org.travelplanner.app.features.tripDetails.route.detailed.data.EventDto
 import org.travelplanner.app.features.tripDetails.route.detailed.data.EventFileDto
 import org.travelplanner.app.features.tripDetails.route.detailed.data.EventLinkDto
+import kotlin.time.Clock
 
 internal fun mimeTypeForFileName(fileName: String): String =
     when (fileName.substringAfterLast('.', "").lowercase()) {
@@ -51,6 +46,10 @@ internal fun mimeTypeForFileName(fileName: String): String =
 class EventRepository(
     private val db: MyDatabase,
     private val api: TripApiService,
+    private val outbox: OutboxRepository,
+    private val attachmentStorage: OutboxAttachmentStorage,
+    private val userSession: UserSession,
+    private val syncTrigger: SyncTrigger,
     private val json: Json,
 ) {
     private val queries = db.eventsQueries
@@ -58,86 +57,19 @@ class EventRepository(
     private fun getEventsEntityFlow(tripId: String): Flow<List<TripEventEntity>> =
         queries.getEventsForTrip(tripId).asFlow().mapToList(Dispatchers.IO)
 
-    private fun getEventEntityFlow(eventId: Long): Flow<TripEventEntity?> =
+    private fun getEventEntityFlow(eventId: String): Flow<TripEventEntity?> =
         queries.getEventById(eventId).asFlow().mapToOneOrNull(Dispatchers.IO)
 
     fun getEventsFlow(tripId: String): Flow<List<Event>> = getEventsEntityFlow(tripId).map { list -> list.map { it.toDomain(json) } }
 
-    fun getEventFlow(eventId: Long): Flow<Event?> = getEventEntityFlow(eventId).map { it?.toDomain(json) }
-
-    fun saveEventLocally(dto: EventDto) {
-        db.transaction {
-            val existingId = queries.getEventIdByRemoteId(dto.id).executeAsOneOrNull()
-
-            if (existingId != null) {
-                queries.updateEventFull(
-                    tripId = dto.tripId,
-                    dayIndex = dto.dayIndex.toLong(),
-                    time = dto.time,
-                    title = dto.title,
-                    subtitle = dto.subtitle,
-                    description = dto.description,
-                    duration = dto.duration,
-                    cost = dto.cost,
-                    actualCost = dto.actualCost ?: 0.0,
-                    status = dto.status,
-                    category = dto.category,
-                    latitude = dto.latitude,
-                    longitude = dto.longitude,
-                    address = dto.address,
-                    linksJson = json.encodeToString(dto.links),
-                    commentsJson = json.encodeToString(dto.comments),
-                    filesJson = json.encodeToString(dto.files),
-                    participantIdsJson = json.encodeToString(dto.participantIds),
-                    type = null,
-                    date = null,
-                    startTime = null,
-                    endTime = null,
-                    sortOrder = 0,
-                    version = 0,
-                    createdBy = "",
-                    id = existingId,
-                )
-            } else {
-                queries.insertOrReplaceEvent(
-                    remoteId = dto.id,
-                    tripId = dto.tripId,
-                    dayIndex = dto.dayIndex.toLong(),
-                    time = dto.time,
-                    title = dto.title,
-                    subtitle = dto.subtitle,
-                    description = dto.description,
-                    duration = dto.duration,
-                    cost = dto.cost,
-                    actualCost = dto.actualCost ?: 0.0,
-                    status = dto.status,
-                    category = dto.category,
-                    latitude = dto.latitude,
-                    longitude = dto.longitude,
-                    address = dto.address,
-                    linksJson = json.encodeToString(dto.links),
-                    commentsJson = json.encodeToString(dto.comments),
-                    filesJson = json.encodeToString(dto.files),
-                    participantIdsJson = json.encodeToString(dto.participantIds),
-                    type = null,
-                    date = null,
-                    startTime = null,
-                    endTime = null,
-                    sortOrder = 0,
-                    version = 0,
-                    createdBy = "",
-                )
-            }
-        }
-    }
+    fun getEventFlow(eventId: String): Flow<Event?> = getEventEntityFlow(eventId).map { it?.toDomain(json) }
 
     fun saveEventFromResponse(
         tripId: String,
         response: ItineraryPointResponse,
     ) {
         db.transaction {
-            val existingId = queries.getEventIdByRemoteId(response.id).executeAsOneOrNull()
-            val existing = existingId?.let { queries.getEventById(it).executeAsOneOrNull() }
+            val existing = queries.getEventById(response.id).executeAsOneOrNull()
             val resolvedCategory =
                 response.category ?: response.type ?: existing?.category ?: "OTHER"
             val participantsJson = json.encodeToString(response.participantIds)
@@ -145,17 +77,17 @@ class EventRepository(
             val commentsJson = existing?.commentsJson ?: "[]"
             val filesJson = existing?.filesJson ?: "[]"
 
-            if (existingId != null) {
+            if (existing != null) {
                 queries.updateEventFull(
                     tripId = tripId,
                     dayIndex = response.dayIndex.toLong(),
                     time = response.startTime ?: "",
                     title = response.title,
-                    subtitle = response.subtitle ?: existing?.subtitle ?: "",
+                    subtitle = response.subtitle ?: existing.subtitle,
                     description = response.description,
                     duration = response.duration,
-                    cost = response.cost ?: existing?.cost ?: 0.0,
-                    actualCost = response.actualCost ?: existing?.actualCost ?: 0.0,
+                    cost = response.cost ?: existing.cost ?: 0.0,
+                    actualCost = response.actualCost ?: existing.actualCost ?: 0.0,
                     status = response.status,
                     category = resolvedCategory,
                     latitude = response.latitude ?: 0.0,
@@ -172,11 +104,11 @@ class EventRepository(
                     sortOrder = response.sortOrder.toLong(),
                     version = response.version,
                     createdBy = response.createdBy,
-                    id = existingId,
+                    id = response.id,
                 )
             } else {
                 queries.insertOrReplaceEvent(
-                    remoteId = response.id,
+                    id = response.id,
                     tripId = tripId,
                     dayIndex = response.dayIndex.toLong(),
                     time = response.startTime ?: "",
@@ -215,8 +147,8 @@ class EventRepository(
             db.transaction {
                 val localEvents = queries.getEventsForTrip(tripId).executeAsList()
                 localEvents.forEach { local ->
-                    if (local.remoteId != null && local.remoteId !in remoteIds) {
-                        queries.deleteEventByRemoteId(local.remoteId)
+                    if (local.id !in remoteIds) {
+                        queries.deleteEvent(local.id)
                     }
                 }
                 remoteEvents.forEach { response ->
@@ -228,12 +160,16 @@ class EventRepository(
         }
     }
 
-    suspend fun addEventOnline(
+    fun addEvent(
         tripId: String,
         dto: EventDto,
-    ) {
+    ): String {
+        val eventId = outbox.newMutationId()
+        val mutationId = outbox.newMutationId()
         val request =
             V2CreateItineraryPointRequest(
+                id = eventId,
+                clientMutationId = mutationId,
                 title = dto.title,
                 description = dto.description,
                 subtitle = dto.subtitle.ifBlank { null },
@@ -251,19 +187,68 @@ class EventRepository(
                 status = dto.status.takeIf { it.isNotBlank() && it != "NONE" },
                 participantIds = dto.participantIds.takeIf { it.isNotEmpty() },
             )
-        val response = api.createItineraryPoint(tripId, request)
-        saveEventFromResponse(tripId, response)
+
+        db.transaction {
+            queries.insertOrReplaceEvent(
+                id = eventId,
+                tripId = tripId,
+                dayIndex = dto.dayIndex.toLong(),
+                time = dto.time,
+                title = dto.title,
+                subtitle = dto.subtitle,
+                description = dto.description,
+                duration = dto.duration,
+                cost = dto.cost,
+                actualCost = dto.actualCost ?: 0.0,
+                status = dto.status,
+                category = dto.category,
+                latitude = dto.latitude,
+                longitude = dto.longitude,
+                address = dto.address,
+                linksJson = json.encodeToString(dto.links),
+                commentsJson = json.encodeToString(dto.comments),
+                filesJson = json.encodeToString(dto.files),
+                participantIdsJson = json.encodeToString(dto.participantIds),
+                type = dto.category,
+                date = null,
+                startTime = dto.time.ifBlank { null },
+                endTime = null,
+                sortOrder = 0L,
+                version = 0L,
+                createdBy =
+                    userSession.currentUser.value
+                        ?.id
+                        .orEmpty(),
+            )
+
+            outbox.enqueue(
+                tripId = tripId,
+                entityType = OutboxEntityType.EVENT,
+                entityId = eventId,
+                operation = OutboxOperation.CREATE,
+                payloadJson =
+                    json.encodeToString(
+                        V2CreateItineraryPointRequest.serializer(),
+                        request,
+                    ),
+                baseVersion = null,
+                existingMutationId = mutationId,
+            )
+        }
+        syncTrigger.requestSync()
+        return eventId
     }
 
-    suspend fun updateEventOnline(
+    fun updateEvent(
         tripId: String,
-        eventId: Long,
-        remoteId: String,
+        eventId: String,
         dto: EventDto,
     ) {
-        val existingEntity = queries.getEventById(eventId).executeAsOneOrNull()
+        val existing = queries.getEventById(eventId).executeAsOneOrNull() ?: return
+        val mutationId = outbox.newMutationId()
         val request =
             V2UpdateItineraryPointRequest(
+                clientMutationId = mutationId,
                 title = dto.title,
                 description = dto.description,
                 subtitle = dto.subtitle,
@@ -279,90 +264,198 @@ class EventRepository(
                 actualCost = dto.actualCost,
                 status = dto.status,
                 participantIds = dto.participantIds,
-                expectedVersion = existingEntity?.version,
+                expectedVersion = existing.version,
             )
-        val response = api.updateItineraryPoint(tripId, remoteId, request)
-        saveEventFromResponse(tripId, response)
+
+        db.transaction {
+            queries.updateEventFull(
+                tripId = tripId,
+                dayIndex = dto.dayIndex.toLong(),
+                time = dto.time,
+                title = dto.title,
+                subtitle = dto.subtitle,
+                description = dto.description,
+                duration = dto.duration,
+                cost = dto.cost,
+                actualCost = dto.actualCost ?: existing.actualCost ?: 0.0,
+                status = dto.status,
+                category = dto.category,
+                latitude = dto.latitude,
+                longitude = dto.longitude,
+                address = dto.address,
+                linksJson = existing.linksJson ?: "[]",
+                commentsJson = existing.commentsJson ?: "[]",
+                filesJson = existing.filesJson ?: "[]",
+                participantIdsJson = json.encodeToString(dto.participantIds),
+                type = dto.category,
+                date = existing.date,
+                startTime = dto.time.ifBlank { null },
+                endTime = existing.endTime,
+                sortOrder = existing.sortOrder,
+                version = existing.version,
+                createdBy = existing.createdBy,
+                id = eventId,
+            )
+
+            outbox.enqueue(
+                tripId = tripId,
+                entityType = OutboxEntityType.EVENT,
+                entityId = eventId,
+                operation = OutboxOperation.UPDATE,
+                payloadJson =
+                    json.encodeToString(
+                        V2UpdateItineraryPointRequest.serializer(),
+                        request,
+                    ),
+                baseVersion = existing.version,
+                existingMutationId = mutationId,
+            )
+        }
+        syncTrigger.requestSync()
     }
 
-    suspend fun uploadFileAndAdd(
+    fun enqueueFileAttachment(
         tripId: String,
-        eventId: Long,
-        currentDto: EventDto,
+        eventId: String,
         fileBytes: ByteArray,
         fileName: String,
         mimeType: String,
-        category: String,
     ) {
-        val attachment = api.uploadFile(tripId, fileBytes, fileName, mimeType)
-        val newFile = EventFileDto(name = fileName, url = attachment.s3Key, type = category)
-        val updatedDto = currentDto.copy(files = currentDto.files + newFile)
-        updateEventOnline(tripId, eventId, currentDto.id, updatedDto)
-    }
+        val attachmentId = outbox.newMutationId()
+        val absolutePath =
+            runCatching { attachmentStorage.write(attachmentId, fileBytes) }
+                .getOrNull() ?: return
+        val now =
+            kotlin.time.Instant
+                .fromEpochMilliseconds(
+                    kotlin.time.Clock.System
+                        .now()
+                        .toEpochMilliseconds(),
+                ).toString()
 
-    fun deleteEventLocal(id: Long) = queries.deleteEvent(id)
-
-    fun deleteEventByRemoteId(remoteId: String) = queries.deleteEventByRemoteId(remoteId)
-
-    suspend fun deleteEventOnline(
-        tripId: String,
-        eventId: Long,
-        remoteId: String?,
-    ) {
-        if (!remoteId.isNullOrBlank()) {
-            api.deleteItineraryPoint(tripId, remoteId)
-        }
-        deleteEventLocal(eventId)
-    }
-
-    fun reconcileFilesJsonFromAttachments(remoteId: String) {
         db.transaction {
-            val eventId =
-                queries.getEventIdByRemoteId(remoteId).executeAsOneOrNull()
-                    ?: return@transaction
-            val entity =
-                queries.getEventById(eventId).executeAsOneOrNull()
-                    ?: return@transaction
-            val files =
-                db.attachmentsQueries
-                    .getAttachmentsForPoint(remoteId)
-                    .executeAsList()
-                    .sortedBy { it.createdAt }
-                    .map { att ->
-                        EventFileDto(
-                            name = att.fileName,
-                            url = att.s3Key,
-                            type = if (att.mimeType.startsWith("image/")) "PHOTO" else "DOCUMENT",
-                        )
-                    }
-            queries.updateEvent(
-                time = entity.time,
-                title = entity.title,
-                subtitle = entity.subtitle,
-                description = entity.description,
-                cost = entity.cost,
-                actualCost = entity.actualCost,
-                category = entity.category,
-                address = entity.address,
-                linksJson = entity.linksJson,
-                commentsJson = entity.commentsJson,
-                filesJson = json.encodeToString(files),
-                participantIdsJson = entity.participantIdsJson,
-                id = eventId,
+            db.attachmentsQueries.insertOrReplaceAttachment(
+                attachmentId,
+                tripId,
+                null,
+                eventId,
+                userSession.currentUser.value
+                    ?.id
+                    .orEmpty(),
+                fileName,
+                fileBytes.size.toLong(),
+                mimeType,
+                "pending://$absolutePath",
+                now,
+            )
+
+            val payload =
+                AttachmentOutboxPayload(
+                    attachmentId = attachmentId,
+                    tripId = tripId,
+                    expenseId = null,
+                    pointId = eventId,
+                    fileName = fileName,
+                    mimeType = mimeType,
+                    fileSizeBytes = fileBytes.size.toLong(),
+                    localFilePath = absolutePath,
+                )
+            outbox.enqueue(
+                tripId = tripId,
+                entityType = OutboxEntityType.ATTACHMENT,
+                entityId = attachmentId,
+                operation = OutboxOperation.CREATE,
+                payloadJson = json.encodeToString(AttachmentOutboxPayload.serializer(), payload),
+                baseVersion = null,
+            )
+
+            reconcileFilesJsonFromAttachmentsInTransaction(eventId)
+        }
+        syncTrigger.requestSync()
+    }
+
+    fun deleteEventLocal(id: String) = queries.deleteEvent(id)
+
+    fun deleteEvent(
+        tripId: String,
+        eventId: String,
+    ) {
+        if (eventId.isBlank()) return
+        val existing = queries.getEventById(eventId).executeAsOneOrNull() ?: return
+        val mutationId = outbox.newMutationId()
+        val payloadJson =
+            json.encodeToString(
+                V2UpdateItineraryPointRequest.serializer(),
+                V2UpdateItineraryPointRequest(
+                    clientMutationId = mutationId,
+                    expectedVersion = existing.version,
+                ),
+            )
+
+        db.transaction {
+            queries.deleteEvent(eventId)
+            outbox.enqueue(
+                tripId = tripId,
+                entityType = OutboxEntityType.EVENT,
+                entityId = eventId,
+                operation = OutboxOperation.DELETE,
+                payloadJson = payloadJson,
+                baseVersion = existing.version,
+                existingMutationId = mutationId,
             )
         }
+        syncTrigger.requestSync()
+    }
+
+    fun reconcileFilesJsonFromAttachments(eventId: String) {
+        db.transaction {
+            reconcileFilesJsonFromAttachmentsInTransaction(eventId)
+        }
+    }
+
+    internal fun reconcileFilesJsonFromAttachmentsInTransaction(eventId: String) {
+        val entity =
+            queries.getEventById(eventId).executeAsOneOrNull()
+                ?: return
+        val files =
+            db.attachmentsQueries
+                .getAttachmentsForPoint(eventId)
+                .executeAsList()
+                .sortedBy { it.createdAt }
+                .map { att ->
+                    EventFileDto(
+                        name = att.fileName,
+                        url = att.s3Key,
+                        type = if (att.mimeType.startsWith("image/")) "PHOTO" else "DOCUMENT",
+                    )
+                }
+        queries.updateEvent(
+            time = entity.time,
+            title = entity.title,
+            subtitle = entity.subtitle,
+            description = entity.description,
+            cost = entity.cost,
+            actualCost = entity.actualCost,
+            category = entity.category,
+            address = entity.address,
+            linksJson = entity.linksJson,
+            commentsJson = entity.commentsJson,
+            filesJson = json.encodeToString(files),
+            participantIdsJson = entity.participantIdsJson,
+            id = eventId,
+        )
     }
 
     suspend fun refreshPointFiles(
         tripId: String,
-        remoteId: String,
+        eventId: String,
     ) {
         if (!BackendFeatureFlags.RICH_EVENT_DATA_ENABLED) return
         try {
             val files =
                 api
                     .listTripFiles(tripId, scope = "all")
-                    .filter { it.pointId == remoteId }
+                    .filter { it.pointId == eventId }
                     .sortedBy { it.createdAt }
                     .map {
                         EventFileDto(
@@ -373,11 +466,8 @@ class EventRepository(
                     }
 
             db.transaction {
-                val existingId =
-                    queries.getEventIdByRemoteId(remoteId).executeAsOneOrNull()
-                        ?: return@transaction
                 val entity =
-                    queries.getEventById(existingId).executeAsOneOrNull()
+                    queries.getEventById(eventId).executeAsOneOrNull()
                         ?: return@transaction
                 queries.updateEvent(
                     time = entity.time,
@@ -392,7 +482,7 @@ class EventRepository(
                     commentsJson = entity.commentsJson,
                     filesJson = json.encodeToString(files),
                     participantIdsJson = entity.participantIdsJson,
-                    id = existingId,
+                    id = eventId,
                 )
             }
         } catch (e: CancellationException) {
@@ -403,88 +493,107 @@ class EventRepository(
 
     suspend fun addPointLink(
         tripId: String,
-        remoteId: String,
+        eventId: String,
         title: String,
         url: String,
     ) {
         if (!BackendFeatureFlags.RICH_EVENT_DATA_ENABLED) return
-        val response = api.addPointLink(tripId, remoteId, AddPointLinkRequest(title, url)) ?: return
-        appendLinkLocally(remoteId, EventLinkDto(title = response.title, url = response.url))
+        val response = api.addPointLink(tripId, eventId, AddPointLinkRequest(title, url)) ?: return
+        appendLinkLocally(eventId, EventLinkDto(title = response.title, url = response.url))
     }
 
     suspend fun deletePointLink(
         tripId: String,
-        remoteId: String,
+        eventId: String,
         linkId: String,
     ) {
         if (!BackendFeatureFlags.RICH_EVENT_DATA_ENABLED) return
-        api.deletePointLink(tripId, remoteId, linkId)
+        api.deletePointLink(tripId, eventId, linkId)
     }
 
-    suspend fun addPointComment(
+    fun addPointComment(
         tripId: String,
-        remoteId: String,
+        eventId: String,
         text: String,
     ) {
         if (!BackendFeatureFlags.RICH_EVENT_DATA_ENABLED) return
-        val response = api.addPointComment(tripId, remoteId, AddPointCommentRequest(text)) ?: return
-        appendCommentLocally(
-            remoteId = remoteId,
-            comment =
-                EventCommentDto(
-                    userId = response.authorUserId,
-                    userName = response.authorDisplayName,
-                    text = response.text,
-                    timestamp = runCatching { isoToEpochMillis(response.createdAt) }.getOrDefault(0L),
-                ),
+        val commentId = outbox.newMutationId()
+        val mutationId = outbox.newMutationId()
+        val user = userSession.currentUser.value
+        val request =
+            AddPointCommentRequest(
+                id = commentId,
+                clientMutationId = mutationId,
+                text = text,
+            )
+        val now = Clock.System.now().toEpochMilliseconds()
+        val localComment =
+            EventCommentDto(
+                userId = user?.id.orEmpty(),
+                userName = user?.name.orEmpty(),
+                text = text,
+                timestamp = now,
+            )
+
+        db.transaction {
+            appendCommentLocally(eventId, localComment)
+            outbox.enqueue(
+                tripId = tripId,
+                entityType = OutboxEntityType.POINT_COMMENT,
+                entityId = commentId,
+                operation = OutboxOperation.CREATE,
+                payloadJson =
+                    json
+                        .encodeToString(AddPointCommentRequest.serializer(), request)
+                        .let { wrap -> wrapWithPointId(wrap, eventId) },
+                baseVersion = null,
+                existingMutationId = mutationId,
+            )
+        }
+        syncTrigger.requestSync()
+    }
+
+    private fun wrapWithPointId(
+        payloadJson: String,
+        pointId: String,
+    ): String {
+        val obj =
+            json.parseToJsonElement(payloadJson).let {
+                if (it is kotlinx.serialization.json.JsonObject) {
+                    kotlinx.serialization.json.JsonObject(
+                        it.toMutableMap().apply {
+                            put("__pointId", kotlinx.serialization.json.JsonPrimitive(pointId))
+                        },
+                    )
+                } else {
+                    it
+                }
+            }
+        return json.encodeToString(
+            kotlinx.serialization.json.JsonElement
+                .serializer(),
+            obj,
         )
     }
 
     suspend fun uploadPointFile(
         tripId: String,
-        remoteId: String,
+        eventId: String,
         fileBytes: ByteArray,
         fileName: String,
         mimeType: String,
     ) {
         if (!BackendFeatureFlags.RICH_EVENT_DATA_ENABLED) return
-        val presigned =
-            api.presignUpload(
-                PresignUploadRequest(fileName, mimeType, fileBytes.size.toLong(), tripId),
-            )
-        val s3Client = HttpClient()
-        try {
-            s3Client.put(presigned.uploadUrl) {
-                header("Content-Type", mimeType)
-                setBody(fileBytes)
-            }
-        } finally {
-            s3Client.close()
-        }
-        api.createPointAttachment(
-            tripId = tripId,
-            pointId = remoteId,
-            request =
-                CreateAttachmentRequest(
-                    fileName = fileName,
-                    fileSize = fileBytes.size.toLong(),
-                    mimeType = mimeType,
-                    s3Key = presigned.s3Key,
-                ),
-        )
-        refreshPointFiles(tripId, remoteId)
+        enqueueFileAttachment(tripId, eventId, fileBytes, fileName, mimeType)
     }
 
     private fun appendLinkLocally(
-        remoteId: String,
+        eventId: String,
         link: EventLinkDto,
     ) {
         db.transaction {
-            val existingId =
-                queries.getEventIdByRemoteId(remoteId).executeAsOneOrNull()
-                    ?: return@transaction
             val entity =
-                queries.getEventById(existingId).executeAsOneOrNull()
+                queries.getEventById(eventId).executeAsOneOrNull()
                     ?: return@transaction
             val current: List<EventLinkDto> =
                 runCatching {
@@ -504,42 +613,37 @@ class EventRepository(
                 commentsJson = entity.commentsJson,
                 filesJson = entity.filesJson,
                 participantIdsJson = entity.participantIdsJson,
-                id = existingId,
+                id = eventId,
             )
         }
     }
 
     private fun appendCommentLocally(
-        remoteId: String,
+        eventId: String,
         comment: EventCommentDto,
     ) {
-        db.transaction {
-            val existingId =
-                queries.getEventIdByRemoteId(remoteId).executeAsOneOrNull()
-                    ?: return@transaction
-            val entity =
-                queries.getEventById(existingId).executeAsOneOrNull()
-                    ?: return@transaction
-            val current: List<EventCommentDto> =
-                runCatching {
-                    json.decodeFromString<List<EventCommentDto>>(entity.commentsJson ?: "[]")
-                }.getOrDefault(emptyList())
-            val updated = current + comment
-            queries.updateEvent(
-                time = entity.time,
-                title = entity.title,
-                subtitle = entity.subtitle,
-                description = entity.description,
-                cost = entity.cost,
-                actualCost = entity.actualCost,
-                category = entity.category,
-                address = entity.address,
-                linksJson = entity.linksJson,
-                commentsJson = json.encodeToString(updated),
-                filesJson = entity.filesJson,
-                participantIdsJson = entity.participantIdsJson,
-                id = existingId,
-            )
-        }
+        val entity =
+            queries.getEventById(eventId).executeAsOneOrNull()
+                ?: return
+        val current: List<EventCommentDto> =
+            runCatching {
+                json.decodeFromString<List<EventCommentDto>>(entity.commentsJson ?: "[]")
+            }.getOrDefault(emptyList())
+        val updated = current + comment
+        queries.updateEvent(
+            time = entity.time,
+            title = entity.title,
+            subtitle = entity.subtitle,
+            description = entity.description,
+            cost = entity.cost,
+            actualCost = entity.actualCost,
+            category = entity.category,
+            address = entity.address,
+            linksJson = entity.linksJson,
+            commentsJson = json.encodeToString(updated),
+            filesJson = entity.filesJson,
+            participantIdsJson = entity.participantIdsJson,
+            id = eventId,
+        )
     }
 }

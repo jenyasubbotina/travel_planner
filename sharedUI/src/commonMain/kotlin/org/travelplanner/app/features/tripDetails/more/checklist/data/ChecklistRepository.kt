@@ -11,7 +11,12 @@ import org.travelplanner.app.TripChecklistEntity
 import org.travelplanner.app.core.BackendFeatureFlags
 import org.travelplanner.app.core.ChecklistItemResponse
 import org.travelplanner.app.core.TripApiService
+import org.travelplanner.app.core.UserSession
 import org.travelplanner.app.core.V2CreateChecklistItemRequest
+import org.travelplanner.app.data.OutboxEntityType
+import org.travelplanner.app.data.OutboxOperation
+import org.travelplanner.app.data.OutboxRepository
+import org.travelplanner.app.data.SyncTrigger
 import org.travelplanner.app.db.MyDatabase
 import org.travelplanner.app.domain.ChecklistItem
 import org.travelplanner.app.domain.toDomain
@@ -19,6 +24,9 @@ import org.travelplanner.app.domain.toDomain
 class ChecklistRepository(
     private val db: MyDatabase,
     private val api: TripApiService,
+    private val outbox: OutboxRepository,
+    private val userSession: UserSession,
+    private val syncTrigger: SyncTrigger,
     private val json: Json,
 ) {
     private val queries = db.checklistsQueries
@@ -53,7 +61,8 @@ class ChecklistRepository(
             title = dto.title,
             isGroup = if (dto.isGroup) 1L else 0L,
             ownerUserId = dto.ownerUserId,
-            completedByJson = Json.encodeToString(dto.completedBy),
+            completedByJson = json.encodeToString(dto.completedBy),
+            version = 1L,
         )
     }
 
@@ -61,22 +70,115 @@ class ChecklistRepository(
         queries.deleteChecklistItem(itemId)
     }
 
-    suspend fun addItem(tripId: String, title: String, isGroup: Boolean) {
+    fun addItem(
+        tripId: String,
+        title: String,
+        isGroup: Boolean,
+    ) {
         if (!BackendFeatureFlags.CHECKLIST_ENABLED) return
-        val req = V2CreateChecklistItemRequest(title, isGroup)
-        val created = api.addChecklistItem(tripId, req) ?: return
-        saveLocally(created)
+        val itemId = outbox.newMutationId()
+        val mutationId = outbox.newMutationId()
+        val ownerUserId =
+            userSession.currentUser.value
+                ?.id
+                .orEmpty()
+        val request =
+            V2CreateChecklistItemRequest(
+                id = itemId,
+                clientMutationId = mutationId,
+                title = title,
+                isGroup = isGroup,
+            )
+
+        db.transaction {
+            queries.insertOrReplaceChecklistItem(
+                id = itemId,
+                tripId = tripId,
+                title = title,
+                isGroup = if (isGroup) 1L else 0L,
+                ownerUserId = ownerUserId,
+                completedByJson = "[]",
+                version = 1L,
+            )
+            outbox.enqueue(
+                tripId = tripId,
+                entityType = OutboxEntityType.CHECKLIST,
+                entityId = itemId,
+                operation = OutboxOperation.CREATE,
+                payloadJson =
+                    json.encodeToString(
+                        V2CreateChecklistItemRequest.serializer(),
+                        request,
+                    ),
+                baseVersion = null,
+                existingMutationId = mutationId,
+            )
+        }
+        syncTrigger.requestSync()
     }
 
-    suspend fun deleteItem(tripId: String, itemId: String) {
+    fun deleteItem(
+        tripId: String,
+        itemId: String,
+    ) {
         if (!BackendFeatureFlags.CHECKLIST_ENABLED) return
-        api.deleteChecklistItem(tripId, itemId)
-        deleteLocally(itemId)
+        val existing =
+            queries.getChecklistForTrip(tripId).executeAsList().firstOrNull { it.id == itemId }
+                ?: return
+        val mutationId = outbox.newMutationId()
+
+        db.transaction {
+            queries.deleteChecklistItem(itemId)
+            outbox.enqueue(
+                tripId = tripId,
+                entityType = OutboxEntityType.CHECKLIST,
+                entityId = itemId,
+                operation = OutboxOperation.DELETE,
+                payloadJson = "{\"clientMutationId\":\"$mutationId\"}",
+                baseVersion = existing.version,
+                existingMutationId = mutationId,
+            )
+        }
+        syncTrigger.requestSync()
     }
 
-    suspend fun toggleItem(tripId: String, itemId: String) {
+    fun toggleItem(
+        tripId: String,
+        itemId: String,
+    ) {
         if (!BackendFeatureFlags.CHECKLIST_ENABLED) return
-        val updated = api.toggleChecklistItem(tripId, itemId) ?: return
-        saveLocally(updated)
+        val existing =
+            queries.getChecklistForTrip(tripId).executeAsList().firstOrNull { it.id == itemId }
+                ?: return
+        val userId = userSession.currentUser.value?.id ?: return
+        val current: List<String> =
+            runCatching {
+                json.decodeFromString<List<String>>(existing.completedByJson)
+            }.getOrDefault(emptyList())
+        val updated = if (userId in current) current - userId else current + userId
+
+        val mutationId = outbox.newMutationId()
+
+        db.transaction {
+            queries.insertOrReplaceChecklistItem(
+                id = existing.id,
+                tripId = existing.tripId,
+                title = existing.title,
+                isGroup = existing.isGroup,
+                ownerUserId = existing.ownerUserId,
+                completedByJson = json.encodeToString(updated),
+                version = existing.version,
+            )
+            outbox.enqueue(
+                tripId = tripId,
+                entityType = OutboxEntityType.CHECKLIST,
+                entityId = itemId,
+                operation = OutboxOperation.TOGGLE,
+                payloadJson = "{\"clientMutationId\":\"$mutationId\"}",
+                baseVersion = existing.version,
+                existingMutationId = mutationId,
+            )
+        }
+        syncTrigger.requestSync()
     }
 }

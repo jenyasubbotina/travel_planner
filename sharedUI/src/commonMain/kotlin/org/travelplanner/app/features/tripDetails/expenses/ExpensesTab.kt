@@ -64,7 +64,6 @@ import kotlinx.coroutines.launch
 import org.koin.core.context.GlobalContext
 import org.koin.core.parameter.parametersOf
 import org.travelplanner.app.DSEmptyStateCard
-import org.travelplanner.app.core.TripUtils
 import org.travelplanner.app.core.TripUtils.isoToEpochMillis
 import org.travelplanner.app.core.formatRussianDateTime
 import org.travelplanner.app.domain.Expense
@@ -278,7 +277,7 @@ data class ExpensesTab(
                     containerColor = Color.Transparent,
                     dragHandle = null,
                 ) {
-                    val expenseRemoteId = activeConflict.expense.remoteId.orEmpty()
+                    val expenseRemoteId = activeConflict.expense.id
 
                     val notCreatorMessage = "Только создатель расхода может принять решение"
 
@@ -348,7 +347,7 @@ data class ExpensesTab(
                             participants = listState.participants,
                             currency = listState.currency,
                         )
-                    val expenseRemoteId = activeMerge.expense.remoteId.orEmpty()
+                    val expenseRemoteId = activeMerge.expense.id
                     ExpenseMergePicker(
                         rows = rows,
                         onApply = { choices ->

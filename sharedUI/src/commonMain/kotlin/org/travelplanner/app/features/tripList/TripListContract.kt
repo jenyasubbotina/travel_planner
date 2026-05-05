@@ -11,6 +11,7 @@ data class TripListState(
     val trips: List<Trip> = emptyList(),
     val searchQuery: String = "",
     val activeFilter: TripFilter = TripFilter.ALL,
+    val pendingCount: Long = 0L,
 ) : UiState
 
 sealed interface TripListIntent : UiIntent {

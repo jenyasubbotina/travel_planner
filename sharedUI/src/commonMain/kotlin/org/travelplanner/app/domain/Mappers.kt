@@ -55,7 +55,6 @@ fun TripParticipantEntity.toDomain(): Participant =
 fun TripExpenseEntity.toDomain(): Expense =
     Expense(
         id = id,
-        remoteId = remoteId,
         tripId = tripId,
         title = title,
         amount = amount,
@@ -83,7 +82,6 @@ fun ExpenseSplitEntity.toDomain(): ExpenseSplit =
 fun TripEventEntity.toDomain(json: Json): Event =
     Event(
         id = id,
-        remoteId = remoteId,
         tripId = tripId,
         dayIndex = dayIndex.toInt(),
         time = time,
@@ -159,8 +157,7 @@ fun TripResponse.toDomain(): Trip =
 
 fun ExpenseResponse.toDomain(): Expense =
     Expense(
-        id = 0,
-        remoteId = id,
+        id = id,
         tripId = tripId,
         title = title,
         amount = amount,
@@ -178,8 +175,7 @@ fun ExpenseResponse.toDomain(): Expense =
 
 fun ItineraryPointResponse.toDomain(): Event =
     Event(
-        id = 0,
-        remoteId = id,
+        id = id,
         tripId = tripId,
         dayIndex = dayIndex,
         time = startTime ?: "",

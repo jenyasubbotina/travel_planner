@@ -28,8 +28,8 @@ import kotlin.coroutines.cancellation.CancellationException
 class TripApiService(
     private val authTokenManager: AuthTokenManager,
     private val json: Json,
-    private val globalNotifier: GlobalNotifier,
     private val gateway: GatewayConfigManager,
+    private val onConnectionLost: () -> Unit = {},
     private val httpClientConfig: (HttpClientConfig<*>.() -> Unit)? = null,
 ) {
     var isOffline: Boolean = true
@@ -59,34 +59,26 @@ class TripApiService(
                         method == HttpMethod.Delete ||
                         method == HttpMethod.Patch
 
-                val urlPath = request.url.buildString()
-                val passThroughErrors =
-                    urlPath.contains("/participants/invite") ||
-                        urlPath.contains("/trip-invitations/")
-
-                if (isOffline && isMutation) {
-                    globalNotifier.notifyError("Нет сети. Доступен только режим чтения.")
-                    throw CancellationException("Offline mode active - mutation blocked")
-                }
-
-                if (isOffline) {
+                if (isOffline && !isMutation) {
                     throw CancellationException("Offline mode active - skipping fetch silently")
                 }
 
                 try {
-                    val call = execute(request)
-                    val status = call.response.status
+                    var call = execute(request)
+                    var status = call.response.status
 
                     if (status == HttpStatusCode.Unauthorized) {
                         val newToken = authTokenManager.refreshAccessToken()
                         if (newToken != null) {
                             request.headers.remove("Authorization")
                             request.headers.append("Authorization", "Bearer $newToken")
-                            return@intercept execute(request)
+                            call = execute(request)
+                            status = call.response.status
                         }
                     }
 
                     if (!status.isSuccess()) {
+                        val urlPath = request.url.buildString()
                         val errorText = call.response.bodyAsText()
                         val backendError =
                             try {
@@ -119,8 +111,10 @@ class TripApiService(
                         throw BackendApiException(status.value, backendError)
                     }
 
-                    return@intercept call
+                    call
                 } catch (e: CancellationException) {
+                    throw e
+                } catch (e: BackendApiException) {
                     throw e
                 } catch (e: VersionConflictException) {
                     throw e
@@ -128,31 +122,10 @@ class TripApiService(
                     throw e
                 } catch (e: AnotherPendingUpdateException) {
                     throw e
-                } catch (e: BackendApiException) {
-                    if (passThroughErrors) {
-                        throw e
-                    }
-                    if (isMutation) {
-                        if (e.statusCode == 400) {
-                            globalNotifier.notifyError("Ошибка данных. Проверьте введенные значения.")
-                        } else {
-                            globalNotifier.notifyError("Ошибка сети. Изменения не сохранены.")
-                        }
-                    } else {
-                        globalNotifier.notifyError("Ошибка загрузки данных.")
-                    }
-                    throw CancellationException("Safe abort due to: ${e.message}")
-                } catch (e: Exception) {
-                    println("[TripApiService] ${request.method.value} $urlPath failed: ${e::class.simpleName}: ${e.message}")
-                    if (passThroughErrors) {
-                        throw e
-                    }
-                    if (isMutation) {
-                        globalNotifier.notifyError("Ошибка сети. Изменения не сохранены.")
-                    } else {
-                        globalNotifier.notifyError("Ошибка загрузки данных.")
-                    }
-                    throw CancellationException("Safe abort due to: ${e.message}")
+                } catch (e: Throwable) {
+                    isOffline = true
+                    onConnectionLost()
+                    throw e
                 }
             }
         }
@@ -163,17 +136,36 @@ class TripApiService(
 
     suspend fun getTrips(): List<TripResponse> = client.get("$baseUrl/api/v1/trips").body()
 
-    suspend fun createTrip(request: V2CreateTripRequest): TripResponse = client.post("$baseUrl/api/v1/trips") { setBody(request) }.body()
+    suspend fun createTrip(
+        request: V2CreateTripRequest,
+        idempotencyKey: String? = null,
+    ): TripResponse =
+        client
+            .post("$baseUrl/api/v1/trips") {
+                if (idempotencyKey != null) header("Idempotency-Key", idempotencyKey)
+                setBody(request)
+            }.body()
 
     suspend fun getTrip(tripId: String): TripResponse = client.get("$baseUrl/api/v1/trips/$tripId").body()
 
     suspend fun updateTrip(
         tripId: String,
         request: V2UpdateTripRequest,
-    ): TripResponse = client.patch("$baseUrl/api/v1/trips/$tripId") { setBody(request) }.body()
+        idempotencyKey: String? = null,
+    ): TripResponse =
+        client
+            .patch("$baseUrl/api/v1/trips/$tripId") {
+                if (idempotencyKey != null) header("Idempotency-Key", idempotencyKey)
+                setBody(request)
+            }.body()
 
-    suspend fun deleteTrip(tripId: String) {
-        client.delete("$baseUrl/api/v1/trips/$tripId")
+    suspend fun deleteTrip(
+        tripId: String,
+        idempotencyKey: String? = null,
+    ) {
+        client.delete("$baseUrl/api/v1/trips/$tripId") {
+            if (idempotencyKey != null) header("Idempotency-Key", idempotencyKey)
+        }
     }
 
     suspend fun archiveTrip(tripId: String): TripResponse = client.post("$baseUrl/api/v1/trips/$tripId/archive").body()
@@ -199,8 +191,12 @@ class TripApiService(
         tripId: String,
         userId: String,
         request: ChangeRoleRequest,
+        idempotencyKey: String? = null,
     ) {
-        client.patch("$baseUrl/api/v1/trips/$tripId/participants/$userId") { setBody(request) }
+        client.patch("$baseUrl/api/v1/trips/$tripId/participants/$userId") {
+            if (idempotencyKey != null) header("Idempotency-Key", idempotencyKey)
+            setBody(request)
+        }
     }
 
     suspend fun acceptInvitation(invitationId: String): ParticipantResponse {
@@ -216,19 +212,34 @@ class TripApiService(
     suspend fun createItineraryPoint(
         tripId: String,
         request: V2CreateItineraryPointRequest,
-    ): ItineraryPointResponse = client.post("$baseUrl/api/v1/trips/$tripId/itinerary") { setBody(request) }.body()
+        idempotencyKey: String? = null,
+    ): ItineraryPointResponse =
+        client
+            .post("$baseUrl/api/v1/trips/$tripId/itinerary") {
+                if (idempotencyKey != null) header("Idempotency-Key", idempotencyKey)
+                setBody(request)
+            }.body()
 
     suspend fun updateItineraryPoint(
         tripId: String,
         pointId: String,
         request: V2UpdateItineraryPointRequest,
-    ): ItineraryPointResponse = client.patch("$baseUrl/api/v1/trips/$tripId/itinerary/$pointId") { setBody(request) }.body()
+        idempotencyKey: String? = null,
+    ): ItineraryPointResponse =
+        client
+            .patch("$baseUrl/api/v1/trips/$tripId/itinerary/$pointId") {
+                if (idempotencyKey != null) header("Idempotency-Key", idempotencyKey)
+                setBody(request)
+            }.body()
 
     suspend fun deleteItineraryPoint(
         tripId: String,
         pointId: String,
+        idempotencyKey: String? = null,
     ) {
-        client.delete("$baseUrl/api/v1/trips/$tripId/itinerary/$pointId")
+        client.delete("$baseUrl/api/v1/trips/$tripId/itinerary/$pointId") {
+            if (idempotencyKey != null) header("Idempotency-Key", idempotencyKey)
+        }
     }
 
     suspend fun reorderItinerary(
@@ -245,7 +256,13 @@ class TripApiService(
     suspend fun createExpense(
         tripId: String,
         request: V2CreateExpenseRequest,
-    ): ExpenseResponse = client.post("$baseUrl/api/v1/trips/$tripId/expenses") { setBody(request) }.body()
+        idempotencyKey: String? = null,
+    ): ExpenseResponse =
+        client
+            .post("$baseUrl/api/v1/trips/$tripId/expenses") {
+                if (idempotencyKey != null) header("Idempotency-Key", idempotencyKey)
+                setBody(request)
+            }.body()
 
     suspend fun getExpense(
         tripId: String,
@@ -256,16 +273,22 @@ class TripApiService(
         tripId: String,
         expenseId: String,
         request: V2UpdateExpenseRequest,
+        idempotencyKey: String? = null,
     ): ExpenseResponse =
         client
-            .patch("$baseUrl/api/v1/trips/$tripId/expenses/$expenseId") { setBody(request) }
-            .body()
+            .patch("$baseUrl/api/v1/trips/$tripId/expenses/$expenseId") {
+                if (idempotencyKey != null) header("Idempotency-Key", idempotencyKey)
+                setBody(request)
+            }.body()
 
     suspend fun deleteExpense(
         tripId: String,
         expenseId: String,
+        idempotencyKey: String? = null,
     ) {
-        client.delete("$baseUrl/api/v1/trips/$tripId/expenses/$expenseId")
+        client.delete("$baseUrl/api/v1/trips/$tripId/expenses/$expenseId") {
+            if (idempotencyKey != null) header("Idempotency-Key", idempotencyKey)
+        }
     }
 
     // -- Analytics --
@@ -325,6 +348,67 @@ class TripApiService(
                 )
             }.body()
 
+    suspend fun presignUploadWithKey(
+        request: PresignUploadRequest,
+        idempotencyKey: String,
+    ): PresignedUploadResponse =
+        client
+            .post("$baseUrl/api/v1/attachments/presign") {
+                header("Idempotency-Key", idempotencyKey)
+                setBody(request)
+            }.body()
+
+    suspend fun s3Put(
+        uploadUrl: String,
+        contentType: String,
+        bytes: ByteArray,
+    ) {
+        val s3Client = HttpClient()
+        try {
+            s3Client.put(uploadUrl) {
+                header("Content-Type", contentType)
+                setBody(bytes)
+            }
+        } finally {
+            s3Client.close()
+        }
+    }
+
+    suspend fun createTripAttachmentWithKey(
+        tripId: String,
+        request: CreateAttachmentRequest,
+        idempotencyKey: String,
+    ): AttachmentResponse =
+        client
+            .post("$baseUrl/api/v1/trips/$tripId/attachments") {
+                header("Idempotency-Key", idempotencyKey)
+                setBody(request)
+            }.body()
+
+    suspend fun createExpenseAttachmentWithKey(
+        tripId: String,
+        expenseId: String,
+        request: CreateAttachmentRequest,
+        idempotencyKey: String,
+    ): AttachmentResponse =
+        client
+            .post("$baseUrl/api/v1/trips/$tripId/expenses/$expenseId/attachments") {
+                header("Idempotency-Key", idempotencyKey)
+                setBody(request)
+            }.body()
+
+    suspend fun createPointAttachmentWithKey(
+        tripId: String,
+        pointId: String,
+        request: CreateAttachmentRequest,
+        idempotencyKey: String,
+    ): AttachmentResponse =
+        client
+            .post("$baseUrl/api/v1/trips/$tripId/itinerary/$pointId/attachments") {
+                header("Idempotency-Key", idempotencyKey)
+                setBody(request)
+            }.body()
+
     // -- Itinerary point links/comments --
 
     suspend fun getPointLinks(
@@ -374,13 +458,13 @@ class TripApiService(
         tripId: String,
         pointId: String,
         request: AddPointCommentRequest,
+        idempotencyKey: String? = null,
     ): PointCommentResponse? {
         if (!BackendFeatureFlags.RICH_EVENT_DATA_ENABLED) return null
         return client
             .post("$baseUrl/api/v1/trips/$tripId/itinerary/$pointId/comments") {
-                setBody(
-                    request,
-                )
+                if (idempotencyKey != null) header("Idempotency-Key", idempotencyKey)
+                setBody(request)
             }.body()
     }
 
@@ -489,8 +573,6 @@ class TripApiService(
         )
     }
 
-    // -- Feature-flagged (no-op when disabled) --
-
     suspend fun getChecklist(tripId: String): List<ChecklistItemResponse> {
         if (!BackendFeatureFlags.CHECKLIST_ENABLED) return emptyList()
         return client.get("$baseUrl/api/v1/trips/$tripId/checklist").body()
@@ -499,25 +581,37 @@ class TripApiService(
     suspend fun addChecklistItem(
         tripId: String,
         request: V2CreateChecklistItemRequest,
+        idempotencyKey: String? = null,
     ): ChecklistItemResponse? {
         if (!BackendFeatureFlags.CHECKLIST_ENABLED) return null
-        return client.post("$baseUrl/api/v1/trips/$tripId/checklist") { setBody(request) }.body()
+        return client
+            .post("$baseUrl/api/v1/trips/$tripId/checklist") {
+                if (idempotencyKey != null) header("Idempotency-Key", idempotencyKey)
+                setBody(request)
+            }.body()
     }
 
     suspend fun toggleChecklistItem(
         tripId: String,
         itemId: String,
+        idempotencyKey: String? = null,
     ): ChecklistItemResponse? {
         if (!BackendFeatureFlags.CHECKLIST_ENABLED) return null
-        return client.put("$baseUrl/api/v1/trips/$tripId/checklist/$itemId/toggle").body()
+        return client
+            .put("$baseUrl/api/v1/trips/$tripId/checklist/$itemId/toggle") {
+                if (idempotencyKey != null) header("Idempotency-Key", idempotencyKey)
+            }.body()
     }
 
     suspend fun deleteChecklistItem(
         tripId: String,
         itemId: String,
+        idempotencyKey: String? = null,
     ) {
         if (!BackendFeatureFlags.CHECKLIST_ENABLED) return
-        client.delete("$baseUrl/api/v1/trips/$tripId/checklist/$itemId")
+        client.delete("$baseUrl/api/v1/trips/$tripId/checklist/$itemId") {
+            if (idempotencyKey != null) header("Idempotency-Key", idempotencyKey)
+        }
     }
 
     suspend fun getTripHistory(tripId: String): List<org.travelplanner.app.features.tripDetails.history.data.HistoryLogDto> {

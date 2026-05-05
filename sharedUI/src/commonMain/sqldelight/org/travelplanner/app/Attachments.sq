@@ -26,6 +26,9 @@ SELECT * FROM attachmentEntity WHERE pointId = ? ORDER BY createdAt DESC;
 getAttachmentIdsByTrip:
 SELECT id FROM attachmentEntity WHERE tripId = ?;
 
+getAttachmentIdAndKeyByTrip:
+SELECT id, s3Key FROM attachmentEntity WHERE tripId = ?;
+
 insertOrReplaceAttachment:
 INSERT OR REPLACE INTO attachmentEntity(id, tripId, expenseId, pointId, uploadedBy, fileName, fileSize, mimeType, s3Key, createdAt)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);

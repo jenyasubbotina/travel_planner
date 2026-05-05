@@ -23,6 +23,7 @@ import org.travelplanner.app.theme.DSTextInput
 fun AcceptInvitationDialog(
     onDismiss: () -> Unit,
     onSubmit: (String) -> Unit,
+    isOffline: Boolean = false,
 ) {
     var invitationId by remember { mutableStateOf("") }
 
@@ -43,13 +44,21 @@ fun AcceptInvitationDialog(
                     placeholder = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
                     modifier = Modifier.fillMaxWidth(),
                 )
+                if (isOffline) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = "Требуется подключение к сети",
+                        fontSize = 12.sp,
+                        color = Color(0xFFEF4444),
+                    )
+                }
             }
         },
         confirmButton = {
             DSButton(
                 text = "Принять",
                 onClick = { if (invitationId.isNotBlank()) onSubmit(invitationId) },
-                enabled = invitationId.isNotBlank(),
+                enabled = invitationId.isNotBlank() && !isOffline,
             )
         },
         dismissButton = {

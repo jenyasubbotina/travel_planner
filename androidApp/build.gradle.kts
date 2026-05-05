@@ -64,6 +64,7 @@ dependencies {
     implementation(libs.kstore.file)
     implementation("com.squareup.okio:okio:3.16.2")
     implementation(libs.androidx.lifecycle.process)
+    implementation(libs.androidx.work.runtime.ktx)
 
     implementation(libs.ktor.client.core)
     implementation(libs.wormaceptor.api)

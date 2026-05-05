@@ -23,6 +23,7 @@ import org.travelplanner.app.theme.DSTextInput
 fun JoinTripDialog(
     onDismiss: () -> Unit,
     onSubmit: (String) -> Unit,
+    isOffline: Boolean = false,
 ) {
     var code by remember { mutableStateOf("") }
 
@@ -42,12 +43,21 @@ fun JoinTripDialog(
                     placeholder = "X92-A1",
                     modifier = Modifier.fillMaxWidth(),
                 )
+                if (isOffline) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = "Требуется подключение к сети",
+                        fontSize = 12.sp,
+                        color = Color(0xFFEF4444),
+                    )
+                }
             }
         },
         confirmButton = {
             DSButton(
                 text = "Отправить заявку",
                 onClick = { if (code.isNotBlank()) onSubmit(code) },
+                enabled = !isOffline && code.isNotBlank(),
             )
         },
         dismissButton = {

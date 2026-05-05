@@ -11,7 +11,6 @@ import org.travelplanner.app.core.V2CreateTripRequest
 import org.travelplanner.app.core.toIsoDate
 import org.travelplanner.app.data.ParticipantRepository
 import org.travelplanner.app.data.TripRepository
-import org.travelplanner.app.domain.Trip
 import kotlin.coroutines.cancellation.CancellationException
 
 class CreateTripScreenModel(
@@ -68,9 +67,11 @@ class CreateTripScreenModel(
 
         if (s.title.isNotBlank() && s.startDate != null && s.endDate != null) {
             screenModelScope.launch {
-                val budgetForServer = s.budget.takeIf { it.isNotBlank() }
-                    ?.toDoubleOrNull()
-                    ?.toString()
+                val budgetForServer =
+                    s.budget
+                        .takeIf { it.isNotBlank() }
+                        ?.toDoubleOrNull()
+                        ?.toString()
                 val request =
                     V2CreateTripRequest(
                         title = s.title,
@@ -82,44 +83,15 @@ class CreateTripScreenModel(
                         destination = s.destination.ifBlank { null },
                     )
 
-                val response = try {
-                    repository.createTrip(request)
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                    sendEffect(CreateTripEffect.ShowMessage("Ошибка при создании: проверьте данные"))
-                    return@launch
-                }
-
-                // Save the trip locally FIRST so subsequent PATCH reads the correct version.
-                withContext(Dispatchers.IO) {
-                    repository.saveServerTrip(
-                        Trip(
-                            id = response.id,
-                            title = response.title,
-                            destination = s.destination,
-                            startDate = response.startDate,
-                            endDate = response.endDate,
-                            currency = s.currency,
-                            totalBudget = (s.budget.toDoubleOrNull() ?: 0.0).toString(),
-                            description = response.description,
-                            ownerUserId = response.createdBy,
-                            imageUrl = null,
-                            version = response.version,
-                            baseCurrency = response.baseCurrency,
-                            createdBy = response.createdBy,
-                            createdAt = response.createdAt,
-                            updatedAt = response.updatedAt,
-                        ),
-                    )
-                    participantRepository.syncParticipants(response.id)
-                }
+                val newTripId =
+                    withContext(Dispatchers.IO) {
+                        repository.createTripLocal(request)
+                    }
 
                 if (s.photoBytes != null) {
                     try {
-                        val s3Key = repository.uploadPhoto(response.id, s.photoBytes)
-                        repository.setTripImageUrl(response.id, s3Key)
+                        val s3Key = repository.uploadPhoto(newTripId, s.photoBytes)
+                        repository.setTripImageUrl(newTripId, s3Key)
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {

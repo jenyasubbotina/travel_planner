@@ -15,8 +15,8 @@ import org.travelplanner.app.domain.Event
 @Composable
 actual fun ItineraryMap(
     events: List<Event>,
-    selectedEventId: Long?,
-    onSelect: (Long) -> Unit,
+    selectedEventId: String?,
+    onSelect: (String) -> Unit,
     modifier: Modifier,
 ) {
     Box(

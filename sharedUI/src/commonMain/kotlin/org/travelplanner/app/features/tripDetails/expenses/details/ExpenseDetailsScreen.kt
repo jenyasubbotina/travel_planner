@@ -44,7 +44,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -59,10 +61,12 @@ import cafe.adriel.voyager.koin.getScreenModel
 import cafe.adriel.voyager.navigator.LocalNavigator
 import cafe.adriel.voyager.navigator.currentOrThrow
 import coil3.compose.AsyncImage
+import org.koin.compose.koinInject
 import org.koin.core.parameter.parametersOf
 import org.travelplanner.app.core.TripUtils.formatDateIso
 import org.travelplanner.app.core.rememberFileDownloader
 import org.travelplanner.app.core.rememberResolvedImageUrl
+import org.travelplanner.app.data.TripRepository
 import org.travelplanner.app.features.tripDetails.expenses.ExpenseFormIntent
 import org.travelplanner.app.features.tripDetails.expenses.ExpenseFormScreenModel
 import org.travelplanner.app.features.tripDetails.expenses.ExpenseFormSheet
@@ -74,7 +78,7 @@ import org.travelplanner.app.features.tripDetails.expenses.getCategoryName
 import org.travelplanner.app.theme.DSLoadingOverlay
 
 data class ExpenseDetailsScreen(
-    val expenseId: Long,
+    val expenseId: String,
     val tripId: String,
 ) : Screen {
     @OptIn(ExperimentalMaterial3Api::class)
@@ -153,6 +157,8 @@ fun ExpenseDetailsContent(
     val downloadFile = rememberFileDownloader()
     var showDownloadDialog by remember { mutableStateOf(false) }
     val resolvedReceiptUrl = rememberResolvedImageUrl(expense.imageUrl)
+    val tripRepo: TripRepository = koinInject()
+    val downloadScope = rememberCoroutineScope()
 
     if (showDownloadDialog && expense.imageUrl != null) {
         AlertDialog(
@@ -163,9 +169,14 @@ fun ExpenseDetailsContent(
                 Button(
                     onClick = {
                         showDownloadDialog = false
-                        val url = resolvedReceiptUrl ?: return@Button
-                        val ext = expense.imageUrl!!.substringAfterLast(".", "jpg")
-                        downloadFile(url, "receipt_${expense.id}.$ext")
+                        val key = expense.imageUrl ?: return@Button
+                        val ext = key.substringAfterLast(".", "jpg")
+                        downloadScope.launch {
+                            val url =
+                                runCatching { tripRepo.getDownloadUrl(key) }.getOrNull()
+                                    ?: return@launch
+                            downloadFile(url, "receipt_${expense.id}.$ext")
+                        }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF155DFC)),
                 ) {

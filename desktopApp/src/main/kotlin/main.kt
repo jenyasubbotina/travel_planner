@@ -29,6 +29,8 @@ import org.travelplanner.app.core.GatewayConfigManager
 import org.travelplanner.app.core.UserSession
 import org.travelplanner.app.core.auth.AuthSession
 import org.travelplanner.app.core.commonModule
+import org.travelplanner.app.data.BackgroundDrainScheduler
+import org.travelplanner.app.data.OutboxAttachmentStorage
 import org.travelplanner.app.features.tripList.TripListScreen
 import java.io.File
 
@@ -72,6 +74,10 @@ val desktopModule =
             val path = File(dir, "gateway.json").absolutePath
             GatewayConfigManager(storeOf<GatewayConfig>(Path(path)))
         }
+
+        single { BackgroundDrainScheduler() }
+
+        single { OutboxAttachmentStorage() }
     }
 
 fun main() =

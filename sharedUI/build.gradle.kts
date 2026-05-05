@@ -76,6 +76,7 @@ kotlin {
             implementation(libs.kstore.file)
 
             implementation(libs.androidx.activityCompose)
+            implementation(libs.androidx.work.runtime.ktx)
 
             implementation(libs.yandex.mapkit)
         }

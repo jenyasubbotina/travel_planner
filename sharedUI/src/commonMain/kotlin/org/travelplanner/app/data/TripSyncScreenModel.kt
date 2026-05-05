@@ -3,6 +3,7 @@ package org.travelplanner.app.data
 import androidx.compose.runtime.mutableStateListOf
 import cafe.adriel.voyager.core.model.screenModelScope
 import cafe.adriel.voyager.navigator.tab.Tab
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
@@ -18,7 +19,8 @@ class TripDetailsScreenModel(
     private val expenseRepo: ExpenseRepository,
     private val checklistRepository: ChecklistRepository,
     private val tripRepo: TripRepository,
-    globalSyncManager: GlobalSyncManager,
+    private val outbox: OutboxRepository,
+    private val globalSyncManager: GlobalSyncManager,
 ) : BaseScreenModel<TripDetailsSyncState, TripDetailsIntent, TripDetailsEffect>(TripDetailsSyncState()) {
     val networkState = globalSyncManager.networkState
     val retryCountdown = globalSyncManager.retryCountdown
@@ -45,11 +47,43 @@ class TripDetailsScreenModel(
                 }
             }
         }
+
+        screenModelScope.launch {
+            outbox.observePendingCount(tripId).collect { count ->
+                updateState { copy(pendingCount = count) }
+            }
+        }
+        screenModelScope.launch {
+            outbox.observeConflicts(tripId).collect { entries ->
+                updateState { copy(conflicts = entries) }
+            }
+        }
+        screenModelScope.launch {
+            outbox.observeDead(tripId).collect { entries ->
+                updateState { copy(deadEntries = entries) }
+            }
+        }
+        screenModelScope.launch {
+            outbox.observeDepthAlert(tripId).collect { tripped ->
+                updateState { copy(depthAlert = tripped) }
+            }
+        }
     }
 
     override fun handleIntent(intent: TripDetailsIntent) {
         when (intent) {
-            is TripDetailsIntent.PerformSync -> performRestSync()
+            is TripDetailsIntent.PerformSync -> {
+                performRestSync()
+            }
+
+            is TripDetailsIntent.DiscardDeadEntry -> {
+                outbox.deleteEntry(intent.entryId)
+            }
+
+            is TripDetailsIntent.RetryEntry -> {
+                outbox.markRetry(intent.entryId)
+                globalSyncManager.syncNow()
+            }
         }
     }
 
@@ -59,18 +93,30 @@ class TripDetailsScreenModel(
         activeSyncJob =
             screenModelScope.launch {
                 updateState { copy(syncState = SyncState.SYNCING) }
-                try {
-                    joinAll(
-                        launch { participantRepo.syncParticipants(tripId) },
-                        launch { eventRepo.syncEvents(tripId) },
-                        launch { expenseRepo.syncExpenses(tripId) },
-                        launch { checklistRepository.syncChecklist(tripId) },
-                    )
-                    updateState { copy(syncState = SyncState.UP_TO_DATE) }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                    updateState { copy(syncState = SyncState.ERROR) }
+                val failures = mutableListOf<Throwable>()
+                joinAll(
+                    launch { runSyncStep(failures) { participantRepo.syncParticipants(tripId) } },
+                    launch { runSyncStep(failures) { eventRepo.syncEvents(tripId) } },
+                    launch { runSyncStep(failures) { expenseRepo.syncExpenses(tripId) } },
+                    launch { runSyncStep(failures) { checklistRepository.syncChecklist(tripId) } },
+                )
+                updateState {
+                    copy(syncState = if (failures.isEmpty()) SyncState.UP_TO_DATE else SyncState.ERROR)
                 }
             }
+    }
+
+    private suspend inline fun runSyncStep(
+        failures: MutableList<Throwable>,
+        crossinline block: suspend () -> Unit,
+    ) {
+        try {
+            block()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            e.printStackTrace()
+            failures += e
+        }
     }
 }

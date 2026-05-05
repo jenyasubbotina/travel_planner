@@ -1,6 +1,5 @@
 CREATE TABLE tripExpenseEntity (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    remoteId TEXT UNIQUE,
+    id TEXT NOT NULL PRIMARY KEY,
     tripId TEXT NOT NULL,
     title TEXT NOT NULL,
     amount TEXT NOT NULL,
@@ -16,11 +15,9 @@ CREATE TABLE tripExpenseEntity (
     splitType TEXT NOT NULL DEFAULT 'EQUAL'
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS expense_remote_id_unique ON tripExpenseEntity(remoteId);
-
 CREATE TABLE expenseSplitEntity (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    expenseId INTEGER NOT NULL,
+    expenseId TEXT NOT NULL,
     participantId TEXT NOT NULL,
     amount TEXT NOT NULL,
     isPaid INTEGER NOT NULL DEFAULT 0,
@@ -29,7 +26,7 @@ CREATE TABLE expenseSplitEntity (
 
 CREATE TABLE expenseHistoryEntity (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    expenseId INTEGER NOT NULL,
+    expenseId TEXT NOT NULL,
     actionTitle TEXT NOT NULL,
     actionSubtitle TEXT NOT NULL,
     timestamp INTEGER NOT NULL,
@@ -44,14 +41,8 @@ SELECT * FROM tripExpenseEntity WHERE tripId = ? ORDER BY date DESC;
 getExpenseById:
 SELECT * FROM tripExpenseEntity WHERE id = ?;
 
-getExpenseByRemoteId:
-SELECT * FROM tripExpenseEntity WHERE remoteId = ? LIMIT 1;
-
-getExpenseIdByRemoteId:
-SELECT id FROM tripExpenseEntity WHERE remoteId = ?;
-
 insertOrReplaceExpense:
-INSERT OR REPLACE INTO tripExpenseEntity(remoteId, tripId, title, amount, category, payerName, date, splitDescription, currency, creatorUserId, pendingUpdateJson, imageUrl, version, splitType)
+INSERT OR REPLACE INTO tripExpenseEntity(id, tripId, title, amount, category, payerName, date, splitDescription, currency, creatorUserId, pendingUpdateJson, imageUrl, version, splitType)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 updateExpenseDetails:
@@ -61,10 +52,6 @@ WHERE id = ?;
 
 getExpenseTotal:
 SELECT SUM(CAST(amount AS REAL)) FROM tripExpenseEntity WHERE tripId = ?;
-
-insertExpense:
-INSERT INTO tripExpenseEntity(tripId, title, amount, currency, category, payerName, date, splitDescription, creatorUserId, pendingUpdateJson)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 updateExpenseFull:
 UPDATE tripExpenseEntity
@@ -76,12 +63,6 @@ UPDATE tripExpenseEntity SET tripId = ? WHERE tripId = ?;
 
 deleteExpense:
 DELETE FROM tripExpenseEntity WHERE id = ?;
-
-deleteExpenseByRemoteId:
-DELETE FROM tripExpenseEntity WHERE remoteId = ?;
-
-lastInsertRowId:
-SELECT last_insert_rowid();
 
 -- SPLIT QUERIES --
 
@@ -130,9 +111,6 @@ WHERE id = :tripId;
 
 getParticipantById:
 SELECT * FROM tripParticipantEntity WHERE id = ?;
-
-getRemoteIdsForTrip:
-SELECT remoteId FROM tripExpenseEntity WHERE tripId = ? AND remoteId IS NOT NULL;
 
 deleteExpensesForTrip:
 DELETE FROM tripExpenseEntity WHERE tripId = ?;
