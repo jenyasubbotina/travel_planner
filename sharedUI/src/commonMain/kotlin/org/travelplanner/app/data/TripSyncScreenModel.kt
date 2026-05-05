@@ -4,10 +4,14 @@ import androidx.compose.runtime.mutableStateListOf
 import cafe.adriel.voyager.core.model.screenModelScope
 import cafe.adriel.voyager.navigator.tab.Tab
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import org.travelplanner.app.core.BaseScreenModel
+import org.travelplanner.app.core.UserSession
 import org.travelplanner.app.features.tripDetails.more.checklist.data.ChecklistRepository
 
 enum class SyncState { SYNCING, UP_TO_DATE, ERROR }
@@ -21,6 +25,7 @@ class TripDetailsScreenModel(
     private val tripRepo: TripRepository,
     private val outbox: OutboxRepository,
     private val globalSyncManager: GlobalSyncManager,
+    private val userSession: UserSession,
 ) : BaseScreenModel<TripDetailsSyncState, TripDetailsIntent, TripDetailsEffect>(TripDetailsSyncState()) {
     val networkState = globalSyncManager.networkState
     val retryCountdown = globalSyncManager.retryCountdown
@@ -67,6 +72,32 @@ class TripDetailsScreenModel(
             outbox.observeDepthAlert(tripId).collect { tripped ->
                 updateState { copy(depthAlert = tripped) }
             }
+        }
+        @OptIn(ExperimentalCoroutinesApi::class)
+        screenModelScope.launch {
+            userSession.currentUser
+                .flatMapLatest { user ->
+                    if (user == null) {
+                        flowOf(0L)
+                    } else {
+                        expenseRepo.observePendingApprovalsCount(tripId, user.id)
+                    }
+                }.collect { count ->
+                    updateState { copy(pendingApprovalsCount = count) }
+                }
+        }
+        @OptIn(ExperimentalCoroutinesApi::class)
+        screenModelScope.launch {
+            userSession.currentUser
+                .flatMapLatest { user ->
+                    if (user == null) {
+                        flowOf(0L)
+                    } else {
+                        expenseRepo.observePendingProposalsCount(tripId, user.id)
+                    }
+                }.collect { count ->
+                    updateState { copy(pendingProposalsCount = count) }
+                }
         }
     }
 

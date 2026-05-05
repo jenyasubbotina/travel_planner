@@ -13,6 +13,8 @@ data class TripDetailsSyncState(
     val conflicts: List<OutboxEntry> = emptyList(),
     val deadEntries: List<OutboxEntry> = emptyList(),
     val depthAlert: Boolean = false,
+    val pendingApprovalsCount: Long = 0L,
+    val pendingProposalsCount: Long = 0L,
 ) : UiState
 
 sealed interface TripDetailsIntent : UiIntent {

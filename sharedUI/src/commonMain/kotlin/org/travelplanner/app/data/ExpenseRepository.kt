@@ -2,6 +2,7 @@ package org.travelplanner.app.data
 
 import app.cash.sqldelight.coroutines.asFlow
 import app.cash.sqldelight.coroutines.mapToList
+import app.cash.sqldelight.coroutines.mapToOne
 import app.cash.sqldelight.coroutines.mapToOneOrNull
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
@@ -58,6 +59,33 @@ class ExpenseRepository(
 
     fun getExpenseSplitsFlow(expenseId: String): Flow<List<org.travelplanner.app.domain.ExpenseSplit>> =
         getExpenseSplitsEntityFlow(expenseId).map { list -> list.map { it.toDomain() } }
+
+    fun observePendingApprovalsCount(
+        tripId: String,
+        creatorUserId: String,
+    ): Flow<Long> =
+        queries
+            .countPendingApprovalsForCreator(tripId, creatorUserId)
+            .asFlow()
+            .mapToOne(Dispatchers.IO)
+
+    fun observePendingProposalsCount(
+        tripId: String,
+        currentUserId: String,
+    ): Flow<Long> =
+        getExpensesFlow(tripId).map { expenses ->
+            expenses.count { exp ->
+                val pending = exp.pendingUpdateJson ?: return@count false
+                if (exp.creatorUserId == currentUserId) return@count false
+                extractProposerId(pending) == currentUserId
+            }.toLong()
+        }
+
+    private fun extractProposerId(pendingUpdateJson: String): String? =
+        runCatching {
+            json.decodeFromString(V2ExpensePendingUpdateResponse.serializer(), pendingUpdateJson)
+                .proposedByUserId
+        }.getOrNull()
 
     fun upsertExpenseFromResponse(
         tripId: String,
@@ -162,6 +190,7 @@ class ExpenseRepository(
         val response = api.resolveConflict(tripId, expenseRemoteId, accept) ?: return
         upsertExpenseFromResponse(tripId, response)
         clearConflictOutboxEntries(expenseRemoteId)
+        syncTrigger.requestSync()
     }
 
     suspend fun mergeConflict(
@@ -173,6 +202,7 @@ class ExpenseRepository(
         val response = api.resolveConflictMerge(tripId, expenseRemoteId, merged) ?: return
         upsertExpenseFromResponse(tripId, response)
         clearConflictOutboxEntries(expenseRemoteId)
+        syncTrigger.requestSync()
     }
 
     suspend fun revertConflict(
@@ -183,6 +213,7 @@ class ExpenseRepository(
         val response = api.resolveConflictRevert(tripId, expenseRemoteId) ?: return
         upsertExpenseFromResponse(tripId, response)
         clearConflictOutboxEntries(expenseRemoteId)
+        syncTrigger.requestSync()
     }
 
     private fun clearConflictOutboxEntries(expenseRemoteId: String) {

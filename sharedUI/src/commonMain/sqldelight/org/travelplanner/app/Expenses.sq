@@ -53,6 +53,10 @@ WHERE id = ?;
 getExpenseTotal:
 SELECT SUM(CAST(amount AS REAL)) FROM tripExpenseEntity WHERE tripId = ?;
 
+countPendingApprovalsForCreator:
+SELECT COUNT(*) FROM tripExpenseEntity
+WHERE tripId = ? AND creatorUserId = ? AND pendingUpdateJson IS NOT NULL;
+
 updateExpenseFull:
 UPDATE tripExpenseEntity
 SET title = ?, amount = ?, category = ?, payerName = ?, date = ?

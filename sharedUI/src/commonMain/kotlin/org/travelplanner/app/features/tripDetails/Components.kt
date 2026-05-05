@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material.icons.filled.WifiTethering
@@ -110,6 +111,8 @@ fun SyncIndicator(
     deadEntries: List<OutboxEntry> = emptyList(),
     depthAlert: Boolean = false,
     retrySeconds: Int? = null,
+    pendingApprovalsCount: Long = 0L,
+    pendingProposalsCount: Long = 0L,
     currentConfig: GatewayConfig = GatewayConfig(),
     onConfigSave: (GatewayConfig) -> Unit = {},
     onRetrySync: () -> Unit = {},
@@ -120,7 +123,7 @@ fun SyncIndicator(
     var showMenu by remember { mutableStateOf(false) }
     var showStatusDialog by remember { mutableStateOf(false) }
 
-    val attentionCount = conflicts.size + deadEntries.size
+    val attentionCount = conflicts.size + deadEntries.size + pendingApprovalsCount.toInt()
     val pendingBadge =
         when {
             pendingCount > 99 -> "99+"
@@ -128,6 +131,12 @@ fun SyncIndicator(
             else -> null
         }
     val attentionBadge = if (attentionCount > 99) "99+" else attentionCount.toString()
+    val proposalsBadge =
+        when {
+            pendingProposalsCount > 99 -> "99+"
+            pendingProposalsCount > 0 -> pendingProposalsCount.toString()
+            else -> null
+        }
 
     val state =
         when {
@@ -194,6 +203,15 @@ fun SyncIndicator(
                     "В очереди",
                     Icons.Default.CloudUpload,
                     pendingBadge,
+                )
+            }
+
+            pendingProposalsCount > 0 -> {
+                IndicatorVisuals(
+                    Color(0xFF3B82F6),
+                    "На рассмотрении: $pendingProposalsCount",
+                    Icons.Default.HourglassEmpty,
+                    proposalsBadge,
                 )
             }
 
@@ -289,6 +307,32 @@ fun SyncIndicator(
                     enabled = false,
                 )
             }
+            if (pendingApprovalsCount > 0) {
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            "Ожидает одобрения: $pendingApprovalsCount",
+                            fontSize = 13.sp,
+                            color = SyncWarnIcon,
+                        )
+                    },
+                    onClick = { showMenu = false },
+                    enabled = false,
+                )
+            }
+            if (pendingProposalsCount > 0) {
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            "На рассмотрении: $pendingProposalsCount",
+                            fontSize = 13.sp,
+                            color = SyncInfoText,
+                        )
+                    },
+                    onClick = { showMenu = false },
+                    enabled = false,
+                )
+            }
             if (conflicts.isNotEmpty()) {
                 DropdownMenuItem(
                     text = {
@@ -319,7 +363,12 @@ fun SyncIndicator(
                     },
                 )
             }
-            if (pendingCount > 0 || conflicts.isNotEmpty() || deadEntries.isNotEmpty()) {
+            if (pendingCount > 0 ||
+                pendingApprovalsCount > 0 ||
+                pendingProposalsCount > 0 ||
+                conflicts.isNotEmpty() ||
+                deadEntries.isNotEmpty()
+            ) {
                 HorizontalDivider()
             }
             DropdownMenuItem(

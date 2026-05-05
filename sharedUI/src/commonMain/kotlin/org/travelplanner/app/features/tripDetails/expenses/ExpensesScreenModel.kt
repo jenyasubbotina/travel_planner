@@ -90,12 +90,16 @@ class ExpensesScreenModel(
                 }
 
             val displayedExpenses =
-                validExpenses.filter { expense ->
-                    val matchesSearch = expense.title.contains(query, ignoreCase = true)
-                    val matchesCategory =
-                        if (category == "ALL") true else expense.category == category
-                    matchesSearch && matchesCategory
-                }
+                validExpenses
+                    .filter { expense ->
+                        val matchesSearch = expense.title.contains(query, ignoreCase = true)
+                        val matchesCategory =
+                            if (category == "ALL") true else expense.category == category
+                        matchesSearch && matchesCategory
+                    }.sortedWith(
+                        compareByDescending<Expense> { it.pendingUpdateJson != null }
+                            .thenByDescending { it.date },
+                    )
 
             val isOwner = bundle.trip?.ownerUserId == currentUser?.id
 

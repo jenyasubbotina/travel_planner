@@ -98,7 +98,8 @@ class OutboxDrainer(
                 }
                 return
             } catch (e: PendingUpdateStoredException) {
-                outbox.markConflict(entry.id, "PENDING_UPDATE_STORED: ${e.error.message}")
+                outbox.markSuccess(entry.id)
+                syncTrigger.requestSync()
                 return
             } catch (e: BackendApiException) {
                 if (e.statusCode == 409) {

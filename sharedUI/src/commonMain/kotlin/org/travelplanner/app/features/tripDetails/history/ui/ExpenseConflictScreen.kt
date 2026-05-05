@@ -17,6 +17,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material.icons.filled.MergeType
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.Text
@@ -162,6 +163,56 @@ fun ExpenseConflictScreen(
 }
 
 @Composable
+fun ExpensePendingProposalScreen(
+    ui: ExpenseConflictUi,
+    onCancel: () -> Unit,
+) {
+    Column(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .background(Color(0xFFFAFAFA), RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        DSNotificationBanner(
+            title = "Правка на рассмотрении",
+            text =
+                "Ваше изменение отправлено создателю расхода. " +
+                    "Вы получите уведомление, когда оно будет принято или отклонено.",
+            backgroundColor = BlueAccentBg,
+            borderColor = BlueAccent.copy(alpha = 0.2f),
+            contentColor = BlueAccent,
+            iconColor = BlueAccent,
+            icon = Icons.Default.HourglassEmpty,
+        )
+
+        ExpenseHeaderCard(
+            shortId = ui.expenseShortId,
+            title = ui.title,
+            conflictAt = ui.conflictAtFormatted,
+        )
+
+        VersionCard(
+            label = "Ваше предложение",
+            modifiedSubtitle = "Отправлено ${ui.mine.modifiedAt}",
+            accent = BlueAccent,
+            accentBg = BlueAccentBg,
+            snapshot = ui.mine,
+            base = ui.base,
+        )
+
+        TextButton(
+            onClick = onCancel,
+            modifier = Modifier.align(Alignment.CenterHorizontally),
+        ) {
+            Text("Закрыть", color = SubtleText)
+        }
+    }
+}
+
+@Composable
 private fun ExpenseHeaderCard(
     shortId: String,
     title: String,
@@ -195,8 +246,8 @@ private fun VersionCard(
     accentBg: Color,
     snapshot: ExpenseSideSnapshot,
     base: ExpenseBaseSnapshot?,
-    saveButtonText: String,
-    onSave: () -> Unit,
+    saveButtonText: String? = null,
+    onSave: (() -> Unit)? = null,
 ) {
     Column(
         modifier =
@@ -233,14 +284,16 @@ private fun VersionCard(
             DiffSummaryChip(accent = accent, accentBg = accentBg, lines = diff)
         }
 
-        DSButton(
-            text = saveButtonText,
-            onClick = onSave,
-            modifier = Modifier.fillMaxWidth(),
-            backgroundColor = accent,
-            contentColor = Color.White,
-            icon = Icons.Default.Check,
-        )
+        if (saveButtonText != null && onSave != null) {
+            DSButton(
+                text = saveButtonText,
+                onClick = onSave,
+                modifier = Modifier.fillMaxWidth(),
+                backgroundColor = accent,
+                contentColor = Color.White,
+                icon = Icons.Default.Check,
+            )
+        }
     }
 }
 

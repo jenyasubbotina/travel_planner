@@ -19,6 +19,7 @@ import org.travelplanner.app.data.SyncTrigger
 import org.travelplanner.app.data.TripDetailsScreenModel
 import org.travelplanner.app.data.TripRepository
 import org.travelplanner.app.db.MyDatabase
+import org.travelplanner.app.features.profile.ui.ProfileScreenModel
 import org.travelplanner.app.features.tripDetails.balance.BalanceScreenModel
 import org.travelplanner.app.features.tripDetails.expenses.ExpenseFormScreenModel
 import org.travelplanner.app.features.tripDetails.expenses.ExpensesScreenModel
@@ -30,7 +31,6 @@ import org.travelplanner.app.features.tripDetails.more.checklist.data.ChecklistR
 import org.travelplanner.app.features.tripDetails.more.checklist.ui.ChecklistScreenModel
 import org.travelplanner.app.features.tripDetails.more.files.ui.FilesScreenModel
 import org.travelplanner.app.features.tripDetails.more.participants.ui.ParticipantsScreenModel
-import org.travelplanner.app.features.profile.ui.ProfileScreenModel
 import org.travelplanner.app.features.tripDetails.route.detailed.ui.EventDetailsScreenModel
 import org.travelplanner.app.features.tripDetails.route.ui.ItineraryScreenModel
 import org.travelplanner.app.features.tripDetails.summary.TripSummaryScreenModel
@@ -195,6 +195,7 @@ val commonModule =
                 checklistRepository = get(),
                 tripRepo = get(),
                 outbox = get(),
+                userSession = get(),
             )
         }
 

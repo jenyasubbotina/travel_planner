@@ -71,6 +71,7 @@ import org.travelplanner.app.features.tripDetails.expenses.details.ExpenseDetail
 import org.travelplanner.app.features.tripDetails.history.ui.ExpenseConflictScreen
 import org.travelplanner.app.features.tripDetails.history.ui.ExpenseConflictUi
 import org.travelplanner.app.features.tripDetails.history.ui.ExpenseMergePicker
+import org.travelplanner.app.features.tripDetails.history.ui.ExpensePendingProposalScreen
 import org.travelplanner.app.features.tripDetails.history.ui.MergeRow
 import org.travelplanner.app.features.tripDetails.route.ui.getCategoryEmoji
 import org.travelplanner.app.theme.DSTextChip
@@ -279,19 +280,10 @@ data class ExpensesTab(
                 ) {
                     val expenseRemoteId = activeConflict.expense.id
 
-                    val notCreatorMessage = "Только создатель расхода может принять решение"
-
-                    fun runIfCreator(action: () -> Unit) {
-                        if (activeConflict.isCreator) {
-                            action()
-                        } else {
-                            showSnackbar(notCreatorMessage)
-                        }
-                    }
-                    ExpenseConflictScreen(
-                        ui = activeConflict.ui,
-                        onSaveMine = {
-                            runIfCreator {
+                    if (activeConflict.isCreator) {
+                        ExpenseConflictScreen(
+                            ui = activeConflict.ui,
+                            onSaveMine = {
                                 val accept = activeConflict.payloads.mineIsProposer
                                 listScreenModel.handleIntent(
                                     ExpensesIntent.ResolveConflict(
@@ -301,10 +293,8 @@ data class ExpensesTab(
                                     ),
                                 )
                                 conflictTarget = null
-                            }
-                        },
-                        onSaveTheirs = {
-                            runIfCreator {
+                            },
+                            onSaveTheirs = {
                                 val accept = !activeConflict.payloads.mineIsProposer
                                 listScreenModel.handleIntent(
                                     ExpensesIntent.ResolveConflict(
@@ -314,24 +304,25 @@ data class ExpensesTab(
                                     ),
                                 )
                                 conflictTarget = null
-                            }
-                        },
-                        onMerge = {
-                            runIfCreator {
+                            },
+                            onMerge = {
                                 mergeTarget = activeConflict
                                 conflictTarget = null
-                            }
-                        },
-                        onRevert = {
-                            runIfCreator {
+                            },
+                            onRevert = {
                                 listScreenModel.handleIntent(
                                     ExpensesIntent.RevertConflict(tripId, expenseRemoteId),
                                 )
                                 conflictTarget = null
-                            }
-                        },
-                        onCancel = { conflictTarget = null },
-                    )
+                            },
+                            onCancel = { conflictTarget = null },
+                        )
+                    } else {
+                        ExpensePendingProposalScreen(
+                            ui = activeConflict.ui,
+                            onCancel = { conflictTarget = null },
+                        )
+                    }
                 }
             }
 

@@ -152,6 +152,8 @@ data class TripDetailsScreen(
                                 deadEntries = tripSyncState.deadEntries,
                                 depthAlert = tripSyncState.depthAlert,
                                 retrySeconds = retryCountdown,
+                                pendingApprovalsCount = tripSyncState.pendingApprovalsCount,
+                                pendingProposalsCount = tripSyncState.pendingProposalsCount,
                                 currentConfig = gatewayConfig,
                                 onConfigSave = { scope.launch { gatewayManager.updateConfig(it) } },
                                 onRetrySync = { screenModel.handleIntent(TripDetailsIntent.PerformSync) },
