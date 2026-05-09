@@ -3,7 +3,6 @@ package org.travelplanner.app.data
 import app.cash.sqldelight.coroutines.asFlow
 import app.cash.sqldelight.coroutines.mapToList
 import app.cash.sqldelight.coroutines.mapToOneOrNull
-import kotlinx.datetime.Clock
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
@@ -19,12 +18,9 @@ import org.travelplanner.app.core.TripResponse
 import org.travelplanner.app.core.UserSession
 import org.travelplanner.app.core.V2CreateTripRequest
 import org.travelplanner.app.core.V2UpdateTripRequest
-import org.travelplanner.app.core.VersionConflictException
-import org.travelplanner.app.core.extractBackendS3KeyOrNull
 import org.travelplanner.app.db.MyDatabase
 import org.travelplanner.app.domain.Trip
 import org.travelplanner.app.domain.toDomain
-import kotlin.time.Clock
 
 class TripRepository(
     private val db: MyDatabase,
@@ -495,6 +491,6 @@ class TripRepository(
 
     private fun isoNow(): String =
         kotlin.time.Instant
-            .fromEpochMilliseconds(Clock.System.now().toEpochMilliseconds())
+            .fromEpochMilliseconds(kotlin.time.Clock.System.now().toEpochMilliseconds())
             .toString()
 }

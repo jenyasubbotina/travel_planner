@@ -10,7 +10,6 @@ import com.azikar24.wormaceptor.api.Feature
 import com.azikar24.wormaceptor.api.WormaCeptorApi
 import com.azikar24.wormaceptor.api.ktor.WormaCeptorKtorPlugin
 import com.google.firebase.messaging.FirebaseMessaging
-import com.yandex.mapkit.MapKitFactory
 import io.github.xxfast.kstore.KStore
 import io.github.xxfast.kstore.file.storeOf
 import io.ktor.client.HttpClientConfig
@@ -45,10 +44,6 @@ class TripApplication : Application() {
     override fun onCreate() {
         super.onCreate()
 
-        MapKitFactory.setApiKey(BuildConfig.YANDEX_MAPKIT_API_KEY)
-        MapKitFactory.setLocale("ru_RU")
-        MapKitFactory.initialize(this)
-
         val tripInvitesChannel =
             NotificationChannelCompat
                 .Builder(
@@ -76,7 +71,6 @@ class TripApplication : Application() {
         val backgroundDrainScheduler: BackgroundDrainScheduler = get()
         backgroundDrainScheduler.schedulePeriodic()
 
-        val globalSyncManager: GlobalSyncManager = get()
         val api: TripApiService = get()
         val authTokenManager: AuthTokenManager = get()
 
@@ -87,6 +81,7 @@ class TripApplication : Application() {
                 .collect { userId ->
                     if (userId == null) return@collect
                     try {
+                        val globalSyncManager: GlobalSyncManager = get()
                         globalSyncManager.networkState.first { it == NetworkState.ONLINE }
                         val token = fetchFcmToken() ?: return@collect
                         val device =
@@ -107,7 +102,10 @@ class TripApplication : Application() {
         ProcessLifecycleOwner.get().lifecycle.addObserver(
             object : DefaultLifecycleObserver {
                 override fun onStart(owner: LifecycleOwner) {
-                    globalSyncManager.onAppResumed()
+                    if (authTokenManager.session.value != null) {
+                        val globalSyncManager: GlobalSyncManager = get()
+                        globalSyncManager.onAppResumed()
+                    }
                 }
             },
         )

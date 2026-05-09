@@ -5,6 +5,7 @@ import android.app.Activity
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import java.util.concurrent.atomic.AtomicBoolean
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -15,6 +16,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.azikar24.wormaceptor.api.WormaCeptorApi
+import com.yandex.mapkit.MapKitFactory
 import org.koin.android.ext.android.inject
 import org.travelplanner.app.TripPlannerApp
 import org.travelplanner.app.data.BackgroundDrainScheduler
@@ -22,6 +24,10 @@ import org.travelplanner.app.data.OutboxRepository
 import org.travelplanner.app.TravelPlannerRoot
 
 class AppActivity : ComponentActivity() {
+    companion object {
+        private val mapKitInitialized = AtomicBoolean(false)
+    }
+
     private val requestNotificationPermission =
         registerForActivityResult(
             ActivityResultContracts.RequestPermission(),
@@ -35,6 +41,7 @@ class AppActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         maybeRequestNotificationPermission()
+        initializeMapKitLazily()
 
         WormaCeptorApi.startActivityOnShake(this)
 
@@ -42,6 +49,15 @@ class AppActivity : ComponentActivity() {
             TravelPlannerRoot(
                 onThemeChanged = { ThemeChanged(it) },
             )
+        }
+    }
+
+    private fun initializeMapKitLazily() {
+        if (!mapKitInitialized.compareAndSet(false, true)) return
+        window.decorView.post {
+            MapKitFactory.setApiKey(BuildConfig.YANDEX_MAPKIT_API_KEY)
+            MapKitFactory.setLocale("ru_RU")
+            MapKitFactory.initialize(applicationContext)
         }
     }
 

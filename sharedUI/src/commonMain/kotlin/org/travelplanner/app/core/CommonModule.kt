@@ -82,6 +82,7 @@ val commonModule =
                     }
                 },
                 httpClientConfig = getOrNull(),
+                globalNotifier = get()
             )
         }
 
