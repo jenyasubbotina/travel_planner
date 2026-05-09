@@ -3,7 +3,9 @@ package org.travelplanner.app.core.auth
 import io.github.xxfast.kstore.KStore
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
+import io.ktor.client.plugins.HttpSend
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.plugins.plugin
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
@@ -18,6 +20,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
+import org.travelplanner.app.core.NetworkDebugLogger
 
 class AuthRequestException(
     val statusCode: Int,
@@ -46,6 +49,32 @@ class AuthTokenManager(
         HttpClient {
             install(ContentNegotiation) {
                 json(json)
+            }
+        }.also { httpClient ->
+            httpClient.plugin(HttpSend).intercept { request ->
+                val method = request.method.value
+                val url = request.url.buildString()
+                val timer = NetworkDebugLogger.start(tag = "auth", method = method, url = url)
+                try {
+                    val call = execute(request)
+                    NetworkDebugLogger.success(
+                        tag = "auth",
+                        method = method,
+                        url = url,
+                        statusCode = call.response.status.value,
+                        timer = timer,
+                    )
+                    call
+                } catch (e: Exception) {
+                    NetworkDebugLogger.failure(
+                        tag = "auth",
+                        method = method,
+                        url = url,
+                        error = e,
+                        timer = timer,
+                    )
+                    throw e
+                }
             }
         }
     }

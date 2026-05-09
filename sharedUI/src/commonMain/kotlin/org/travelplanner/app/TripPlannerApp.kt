@@ -28,6 +28,14 @@ import org.koin.compose.koinInject
 import org.travelplanner.app.core.GlobalNotifier
 import org.travelplanner.app.core.UserSession
 import org.travelplanner.app.features.tripList.TripListScreen
+import org.travelplanner.app.theme.AppTheme
+
+@Composable
+fun TravelPlannerRoot(
+    onThemeChanged: @Composable (isDark: Boolean) -> Unit = {},
+) = AppTheme(onThemeChanged) {
+    TripPlannerApp()
+}
 
 @Composable
 fun TripPlannerApp() {

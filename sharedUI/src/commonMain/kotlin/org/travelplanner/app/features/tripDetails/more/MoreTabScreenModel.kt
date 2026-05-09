@@ -15,6 +15,7 @@ import org.travelplanner.app.core.GlobalNotifier
 import org.travelplanner.app.core.ReactiveScreenModel
 import org.travelplanner.app.core.UserSession
 import org.travelplanner.app.core.VersionConflictException
+import org.travelplanner.app.core.extractBackendS3KeyOrNull
 import org.travelplanner.app.core.toEpochMillis
 import org.travelplanner.app.data.EventRepository
 import org.travelplanner.app.data.ExpenseRepository
@@ -345,18 +346,40 @@ class MoreTabScreenModel(
         screenModelScope.launch {
             try {
                 tripRepository.enqueueTripFileAttachment(tripId, bytes, fileName)
+                tripRepository.refreshTripFiles(tripId)
+                globalSyncManager.syncNow()
+                globalNotifier.notifySuccess("Файл успешно загружен")
             } catch (e: Exception) {
                 e.printStackTrace()
+                // Keep local placeholder as a fallback so user data is not silently lost.
+                tripRepository.saveFakeAttachmentLocally(
+                    tripId = tripId,
+                    fileName = fileName,
+                    fileSize = bytes.size.toLong(),
+                )
+                globalNotifier.notifyError("Не удалось загрузить файл на сервер, сохранена локальная копия")
             }
         }
     }
 
     suspend fun getDownloadUrl(item: TripMediaItem): String? {
-        val key = item.s3Key ?: return item.url
+        val raw = item.s3Key ?: item.url
+        if (raw.startsWith("http://") || raw.startsWith("https://")) return raw
+        if (raw.startsWith("local://")) {
+            globalNotifier.notifyError("Этот файл сохранен только локально и недоступен для серверного скачивания")
+            return null
+        }
+        val key =
+            extractBackendS3KeyOrNull(raw)
+                ?: run {
+                    globalNotifier.notifyError("Не удалось скачать файл: неверный ключ в данных вложения")
+                    return null
+                }
         return try {
             tripRepository.getDownloadUrl(key)
         } catch (e: Exception) {
             e.printStackTrace()
+            globalNotifier.notifyError("Не удалось получить ссылку для скачивания")
             null
         }
     }

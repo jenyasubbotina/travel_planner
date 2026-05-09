@@ -18,10 +18,11 @@ fun rememberResolvedImageUrl(s3KeyOrUrl: String?): Any? {
         return s3KeyOrUrl
     }
     val context = LocalPlatformContext.current
+    val objectKey = extractBackendS3KeyOrNull(s3KeyOrUrl) ?: return null
     val repo: TripRepository = koinInject()
     var url by remember(s3KeyOrUrl) { mutableStateOf<String?>(null) }
     LaunchedEffect(s3KeyOrUrl) {
-        url = runCatching { repo.getDownloadUrl(s3KeyOrUrl) }.getOrNull()
+        url = runCatching { repo.getDownloadUrl(objectKey) }.getOrNull()
     }
     return remember(s3KeyOrUrl, url, context) {
         ImageRequest

@@ -38,6 +38,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -104,6 +105,7 @@ data class ExpensesTab(
 
         var conflictTarget by remember { mutableStateOf<ConflictTarget?>(null) }
         var mergeTarget by remember { mutableStateOf<ConflictTarget?>(null) }
+        val addExpenseSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
         val snackbarHostState = remember { SnackbarHostState() }
         val scope = rememberCoroutineScope()
@@ -257,6 +259,7 @@ data class ExpensesTab(
             if (isAddSheetVisible) {
                 ModalBottomSheet(
                     onDismissRequest = { isAddSheetVisible = false },
+                    sheetState = addExpenseSheetState,
                     containerColor = Color.Transparent,
                     dragHandle = null,
                 ) {
@@ -382,7 +385,9 @@ fun ExpensesList(
             title = "Нет расходов",
             description = "Добавьте первый расход, чтобы начать отслеживание бюджета",
             buttonText = "Добавить расход",
-            onButtonClick = {},
+            onButtonClick = {
+                // formScreenModel.handleIntent(ExpenseFormIntent.Initialize(null))
+            },
             icon = Icons.Default.Receipt,
         )
         return

@@ -45,6 +45,7 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import org.koin.core.parameter.parametersOf
 import org.travelplanner.app.core.TripUtils.isoToEpochMillis
+import org.travelplanner.app.core.extractBackendS3KeyOrNull
 import org.travelplanner.app.core.toEpochMillis
 import org.travelplanner.app.DSEmptyStateCard
 import org.travelplanner.app.data.EventRepository
@@ -142,7 +143,9 @@ class FilesScreenModel(
         }.stateIn(screenModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     suspend fun getDownloadUrl(item: TripMediaItem): String? {
-        val key = item.s3Key ?: return item.url
+        val raw = item.s3Key ?: item.url
+        if (raw.startsWith("http://") || raw.startsWith("https://")) return raw
+        val key = extractBackendS3KeyOrNull(raw) ?: return null
         return try {
             tripRepository.getDownloadUrl(key)
         } catch (e: Exception) {

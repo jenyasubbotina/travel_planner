@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "121878550214",
+    "project_id": "tp-dev-artyo",
+    "storage_bucket": "tp-dev-artyo.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:121878550214:android:e9d9b8ff16ab57b165e9c7",
+        "android_client_info": {
+          "package_name": "org.travelplanner.app.androidApp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCrNr8pUk9UvDnA4MMYnHxSY9bj74YNKLo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -28,6 +28,7 @@ import kotlin.coroutines.cancellation.CancellationException
 class TripApiService(
     private val authTokenManager: AuthTokenManager,
     private val json: Json,
+    private val globalNotifier: GlobalNotifier,
     private val gateway: GatewayConfigManager,
     private val onConnectionLost: () -> Unit = {},
     private val httpClientConfig: (HttpClientConfig<*>.() -> Unit)? = null,
@@ -131,6 +132,20 @@ class TripApiService(
         }
 
     private val baseUrl: String get() = gateway.baseUrl
+
+    private fun normalizeLoopbackHostUrl(url: String): String {
+        val loopbackPattern = Regex("^(https?://)(localhost|127\\.0\\.0\\.1)(:\\d+)?(.*)$")
+        val match = loopbackPattern.find(url) ?: return url
+        val gatewayHost = gateway.baseUrl.substringAfter("://").substringBefore('/').substringBefore(':')
+        if (gatewayHost.isBlank()) return url
+
+        val scheme = match.groupValues[1]
+        val portPart = match.groupValues[3]
+        val tail = match.groupValues[4]
+        val normalized = "$scheme$gatewayHost$portPart$tail"
+        println("[attachments] normalized loopback host: $url -> $normalized")
+        return normalized
+    }
 
     // -- Trips --
 
@@ -304,11 +319,14 @@ class TripApiService(
     suspend fun presignUpload(request: PresignUploadRequest): PresignedUploadResponse =
         client.post("$baseUrl/api/v1/attachments/presign") { setBody(request) }.body()
 
-    suspend fun presignDownload(s3Key: String): PresignedDownloadResponse =
-        client
-            .post("$baseUrl/api/v1/attachments/presign-download") {
-                setBody(PresignDownloadRequest(s3Key))
-            }.body()
+    suspend fun presignDownload(s3Key: String): PresignedDownloadResponse {
+        val response =
+            client
+                .post("$baseUrl/api/v1/attachments/presign-download") {
+                    setBody(PresignDownloadRequest(s3Key))
+                }.body<PresignedDownloadResponse>()
+        return response.copy(url = normalizeLoopbackHostUrl(response.url))
+    }
 
     suspend fun createAttachment(
         tripId: String,
@@ -513,9 +531,10 @@ class TripApiService(
             )
 
         // Upload
+        val uploadUrl = normalizeLoopbackHostUrl(presigned.uploadUrl)
         val s3Client = HttpClient()
         try {
-            s3Client.put(presigned.uploadUrl) {
+            s3Client.put(uploadUrl) {
                 header("Content-Type", contentType)
                 setBody(fileBytes)
             }
@@ -551,9 +570,10 @@ class TripApiService(
                 ),
             )
 
+        val uploadUrl = normalizeLoopbackHostUrl(presigned.uploadUrl)
         val s3Client = HttpClient()
         try {
-            s3Client.put(presigned.uploadUrl) {
+            s3Client.put(uploadUrl) {
                 header("Content-Type", contentType)
                 setBody(fileBytes)
             }

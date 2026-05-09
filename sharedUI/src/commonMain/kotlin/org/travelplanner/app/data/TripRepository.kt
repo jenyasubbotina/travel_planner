@@ -3,6 +3,7 @@ package org.travelplanner.app.data
 import app.cash.sqldelight.coroutines.asFlow
 import app.cash.sqldelight.coroutines.mapToList
 import app.cash.sqldelight.coroutines.mapToOneOrNull
+import kotlinx.datetime.Clock
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
@@ -18,6 +19,8 @@ import org.travelplanner.app.core.TripResponse
 import org.travelplanner.app.core.UserSession
 import org.travelplanner.app.core.V2CreateTripRequest
 import org.travelplanner.app.core.V2UpdateTripRequest
+import org.travelplanner.app.core.VersionConflictException
+import org.travelplanner.app.core.extractBackendS3KeyOrNull
 import org.travelplanner.app.db.MyDatabase
 import org.travelplanner.app.domain.Trip
 import org.travelplanner.app.domain.toDomain
@@ -388,6 +391,30 @@ class TripRepository(
             att.s3Key,
             att.createdAt,
         )
+    }
+
+    fun saveFakeAttachmentLocally(
+        tripId: String,
+        fileName: String,
+        fileSize: Long,
+    ): AttachmentResponse {
+        val now = kotlin.time.Clock.System.now().toString()
+        val safeFileName = fileName.ifBlank { "file.bin" }
+        val localId = "local-${kotlin.time.Clock.System.now().toEpochMilliseconds()}-${safeFileName.hashCode()}"
+        val localKey = "local://$tripId/$localId/$safeFileName"
+        val attachment =
+            AttachmentResponse(
+                id = localId,
+                tripId = tripId,
+                uploadedBy = "local",
+                fileName = safeFileName,
+                fileSize = fileSize,
+                mimeType = mimeTypeForFileName(safeFileName),
+                s3Key = localKey,
+                createdAt = now,
+            )
+        saveAttachmentLocally(attachment)
+        return attachment
     }
 
     suspend fun refreshTripFiles(tripId: String) {

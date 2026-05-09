@@ -1,7 +1,7 @@
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.window.ComposeUIViewController
-import org.travelplanner.app.App
+import org.travelplanner.app.TravelPlannerRoot
 import platform.UIKit.UIApplication
 import platform.UIKit.UIStatusBarStyleDarkContent
 import platform.UIKit.UIStatusBarStyleLightContent
@@ -9,7 +9,7 @@ import platform.UIKit.UIViewController
 import platform.UIKit.setStatusBarStyle
 
 fun MainViewController(): UIViewController = ComposeUIViewController { 
-    App(onThemeChanged = { ThemeChanged(it) })
+    TravelPlannerRoot(onThemeChanged = { ThemeChanged(it) })
 }
 
 @Composable

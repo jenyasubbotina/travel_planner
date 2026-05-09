@@ -9,7 +9,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.platform.LocalView
@@ -20,6 +19,7 @@ import org.koin.android.ext.android.inject
 import org.travelplanner.app.TripPlannerApp
 import org.travelplanner.app.data.BackgroundDrainScheduler
 import org.travelplanner.app.data.OutboxRepository
+import org.travelplanner.app.TravelPlannerRoot
 
 class AppActivity : ComponentActivity() {
     private val requestNotificationPermission =
@@ -39,9 +39,9 @@ class AppActivity : ComponentActivity() {
         WormaCeptorApi.startActivityOnShake(this)
 
         setContent {
-            MaterialTheme {
-                TripPlannerApp()
-            }
+            TravelPlannerRoot(
+                onThemeChanged = { ThemeChanged(it) },
+            )
         }
     }
 

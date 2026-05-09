@@ -17,8 +17,8 @@ data class GatewayConfig(
     val baseUrl: String get() = "${if (useTls) "https" else "http"}://$address"
 
     companion object {
-        // const val DEFAULT_ADDRESS = "213.165.216.91:8080"
-        const val DEFAULT_ADDRESS = "192.168.50.77:8080"
+        const val LOCAL_ADDRESS = "192.168.50.77:8080"
+        const val DEFAULT_ADDRESS = "111.88.158.20:8080"
     }
 }
 

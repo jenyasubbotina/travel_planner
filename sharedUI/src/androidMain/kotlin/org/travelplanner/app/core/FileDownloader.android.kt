@@ -3,11 +3,11 @@ package org.travelplanner.app.core
 import android.app.DownloadManager
 import android.content.Context
 import android.os.Environment
+import android.os.SystemClock
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.net.toUri
-import android.net.Uri as AndroidUri
 
 @Composable
 actual fun rememberFileDownloader(): (url: String, fileName: String) -> Unit {
@@ -26,7 +26,40 @@ actual fun rememberFileDownloader(): (url: String, fileName: String) -> Unit {
 
             val downloadManager =
                 context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-            downloadManager.enqueue(request)
+            val downloadId = downloadManager.enqueue(request)
+            println("[download] enqueued id=$downloadId file=$fileName url=$url")
+
+            Thread {
+                repeat(10) {
+                    SystemClock.sleep(1500)
+                    val query = DownloadManager.Query().setFilterById(downloadId)
+                    downloadManager.query(query)?.use { cursor ->
+                        if (!cursor.moveToFirst()) return@use
+                        val status = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
+                        val reason = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON))
+                        val downloadedSoFar =
+                            cursor.getLong(
+                                cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR),
+                            )
+                        val totalBytes =
+                            cursor.getLong(
+                                cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES),
+                            )
+                        val uri =
+                            runCatching {
+                                cursor.getString(
+                                    cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_URI),
+                                )
+                            }.getOrNull()
+                        println(
+                            "[download] id=$downloadId status=$status reason=$reason progress=$downloadedSoFar/$totalBytes uri=$uri",
+                        )
+                        if (status == DownloadManager.STATUS_SUCCESSFUL || status == DownloadManager.STATUS_FAILED) {
+                            return@Thread
+                        }
+                    }
+                }
+            }.start()
         }
     }
 }
