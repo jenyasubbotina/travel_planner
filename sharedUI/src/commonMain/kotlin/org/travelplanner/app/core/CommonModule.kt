@@ -272,6 +272,7 @@ val commonModule =
                 participantRepository = get(),
                 userSession = get(),
                 tripRepository = get(),
+                globalNotifier = get(),
             )
         }
 

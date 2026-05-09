@@ -14,6 +14,7 @@ import org.travelplanner.app.ExpenseSplitEntity
 import org.travelplanner.app.TripExpenseEntity
 import org.travelplanner.app.core.BackendFeatureFlags
 import org.travelplanner.app.core.ExpenseResponse
+import org.travelplanner.app.core.SettlementResponse
 import org.travelplanner.app.core.TripApiService
 import org.travelplanner.app.core.UserSession
 import org.travelplanner.app.core.V2CreateExpenseRequest
@@ -563,6 +564,8 @@ class ExpenseRepository(
             splits = mapOf(creditorId to amount),
         )
     }
+
+    suspend fun getSettlements(tripId: String): List<SettlementResponse> = api.getSettlements(tripId)
 
     suspend fun syncExpenses(tripId: String) {
         try {

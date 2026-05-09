@@ -2,6 +2,7 @@ package org.travelplanner.app.features.tripDetails.balance
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,6 +31,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -110,7 +112,16 @@ data class BalanceTab(
             }
 
             item {
-                OptimizationCard()
+                OptimizationCard(
+                    isLoading = state.isOptimizationLoading,
+                    onClick = { screenModel.handleIntent(BalanceIntent.OptimizeSettlements) },
+                )
+            }
+
+            if (state.isOptimizationApplied) {
+                item {
+                    OptimizationAppliedBanner(message = state.optimizationMessage)
+                }
             }
 
             item {
@@ -300,7 +311,10 @@ fun BalanceHeaderCard(
 }
 
 @Composable
-fun OptimizationCard() {
+fun OptimizationCard(
+    isLoading: Boolean,
+    onClick: () -> Unit,
+) {
     Box(
         modifier =
             Modifier
@@ -308,6 +322,7 @@ fun OptimizationCard() {
                 .height(72.dp)
                 .clip(RoundedCornerShape(16.dp))
                 .background(Brush.horizontalGradient(listOf(PurpleStart, PinkEnd)))
+                .clickable(enabled = !isLoading, onClick = onClick)
                 .padding(horizontal = 16.dp),
         contentAlignment = Alignment.CenterStart,
     ) {
@@ -334,10 +349,10 @@ fun OptimizationCard() {
                 Spacer(Modifier.width(12.dp))
                 Column {
                     Text(
-                        "Оптимизировать расчёты",
+                        "ОПТИМИЗИРОВАТЬ РАСХОДЫ",
                         color = Color.White,
                         fontWeight = FontWeight.Medium,
-                        fontSize = 16.sp,
+                        fontSize = 14.sp,
                     )
                     Text(
                         "Минимизировать количество переводов",
@@ -346,7 +361,67 @@ fun OptimizationCard() {
                     )
                 }
             }
-            Icon(Icons.Default.ArrowForward, null, tint = Color.White)
+            if (isLoading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    strokeWidth = 2.dp,
+                    color = Color.White,
+                )
+            } else {
+                Icon(Icons.Default.ArrowForward, null, tint = Color.White)
+            }
+        }
+    }
+}
+
+@Composable
+fun OptimizationAppliedBanner(message: String?) {
+    val subtitle = message ?: "Переводы обновлены"
+    Card(
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFFDF8FF)),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .border(1.dp, Color(0xFFE9D5FF), RoundedCornerShape(20.dp)),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.Top,
+        ) {
+            Box(
+                modifier =
+                    Modifier
+                        .size(28.dp)
+                        .background(Color(0xFFF5E8FF), CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Lightbulb,
+                    contentDescription = null,
+                    tint = Color(0xFF7E22CE),
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+            Spacer(Modifier.width(10.dp))
+            Column {
+                Text(
+                    text = "Оптимизация применена",
+                    color = Color(0xFF7E22CE),
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 15.sp,
+                )
+                Text(
+                    text = subtitle,
+                    color = Color(0xFF9333EA),
+                    fontSize = 14.sp,
+                )
+                Text(
+                    text = "Экономия времени!",
+                    color = Color(0xFF9333EA),
+                    fontSize = 14.sp,
+                )
+            }
         }
     }
 }

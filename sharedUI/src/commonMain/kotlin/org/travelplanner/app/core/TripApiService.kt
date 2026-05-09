@@ -6,6 +6,9 @@ import io.ktor.client.call.body
 import io.ktor.client.plugins.HttpSend
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.defaultRequest
+import io.ktor.client.plugins.logging.LogLevel
+import io.ktor.client.plugins.logging.Logger
+import io.ktor.client.plugins.logging.Logging
 import io.ktor.client.plugins.plugin
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
@@ -43,6 +46,22 @@ class TripApiService(
         HttpClient {
             httpClientConfig?.invoke(this)
             install(ContentNegotiation) { json(json) }
+            if (NetworkDebugLogger.isActive()) {
+                install(Logging) {
+                    logger =
+                        object : Logger {
+                            override fun log(message: String) {
+                                NetworkDebugLogger.logRaw(tag = "api", message = message)
+                            }
+                        }
+                    level = LogLevel.ALL
+                    sanitizeHeader { header ->
+                        header.equals("Authorization", ignoreCase = true) ||
+                            header.equals("Cookie", ignoreCase = true) ||
+                            header.equals("Set-Cookie", ignoreCase = true)
+                    }
+                }
+            }
 
             defaultRequest {
                 val token = authTokenManager.accessToken
@@ -54,6 +73,9 @@ class TripApiService(
         }.also { httpClient ->
             httpClient.plugin(HttpSend).intercept { request ->
                 val method = request.method
+                val methodName = method.value
+                val url = request.url.buildString()
+                val timer = NetworkDebugLogger.start(tag = "api", method = methodName, url = url)
                 val isMutation =
                     method == HttpMethod.Post ||
                         method == HttpMethod.Put ||
@@ -112,18 +134,67 @@ class TripApiService(
                         throw BackendApiException(status.value, backendError)
                     }
 
+                    NetworkDebugLogger.success(
+                        tag = "api",
+                        method = methodName,
+                        url = url,
+                        statusCode = status.value,
+                        timer = timer,
+                    )
                     call
                 } catch (e: CancellationException) {
+                    NetworkDebugLogger.failure(
+                        tag = "api",
+                        method = methodName,
+                        url = url,
+                        error = e,
+                        timer = timer,
+                    )
                     throw e
                 } catch (e: BackendApiException) {
+                    NetworkDebugLogger.failure(
+                        tag = "api",
+                        method = methodName,
+                        url = url,
+                        error = e,
+                        timer = timer,
+                    )
                     throw e
                 } catch (e: VersionConflictException) {
+                    NetworkDebugLogger.failure(
+                        tag = "api",
+                        method = methodName,
+                        url = url,
+                        error = e,
+                        timer = timer,
+                    )
                     throw e
                 } catch (e: PendingUpdateStoredException) {
+                    NetworkDebugLogger.failure(
+                        tag = "api",
+                        method = methodName,
+                        url = url,
+                        error = e,
+                        timer = timer,
+                    )
                     throw e
                 } catch (e: AnotherPendingUpdateException) {
+                    NetworkDebugLogger.failure(
+                        tag = "api",
+                        method = methodName,
+                        url = url,
+                        error = e,
+                        timer = timer,
+                    )
                     throw e
                 } catch (e: Throwable) {
+                    NetworkDebugLogger.failure(
+                        tag = "api",
+                        method = methodName,
+                        url = url,
+                        error = e,
+                        timer = timer,
+                    )
                     isOffline = true
                     onConnectionLost()
                     throw e

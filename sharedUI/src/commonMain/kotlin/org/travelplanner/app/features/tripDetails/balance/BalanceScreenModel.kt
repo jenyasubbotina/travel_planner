@@ -1,12 +1,14 @@
 package org.travelplanner.app.features.tripDetails.balance
 
 import cafe.adriel.voyager.core.model.screenModelScope
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.travelplanner.app.core.AppUser
+import org.travelplanner.app.core.GlobalNotifier
 import org.travelplanner.app.core.ReactiveScreenModel
 import org.travelplanner.app.core.UserSession
 import org.travelplanner.app.core.toEpochMillis
@@ -26,7 +28,17 @@ class BalanceScreenModel(
     private val participantRepository: ParticipantRepository,
     private val userSession: UserSession,
     private val tripRepository: TripRepository,
+    private val globalNotifier: GlobalNotifier,
 ) : ReactiveScreenModel<BalanceUiState, BalanceIntent, BalanceEffect>() {
+    private data class OptimizationUiState(
+        val isLoading: Boolean = false,
+        val isApplied: Boolean = false,
+        val message: String? = null,
+        val overriddenPayments: List<SuggestedPayment>? = null,
+    )
+
+    private val optimizationState = MutableStateFlow(OptimizationUiState())
+
     override val state: StateFlow<BalanceUiState> =
         combine(
             expenseRepository.getExpensesFlow(tripId),
@@ -34,24 +46,35 @@ class BalanceScreenModel(
             expenseRepository.getSplitsFlow(tripId),
             userSession.currentUser,
             tripRepository.getTripById(tripId),
+            optimizationState,
         ) { flows ->
             val expenses = flows[0] as List<Expense>
             val participants = flows[1] as List<Participant>
             val allSplits = flows[2] as List<ExpenseSplit>
             val currentUser = flows[3] as AppUser?
             val trip = flows[4] as org.travelplanner.app.domain.Trip?
-            calculateDetailedBalance(
-                expenses,
-                participants,
-                allSplits,
-                currentUser,
-                trip?.currency ?: "¥",
+            val optimizationUi = flows[5] as OptimizationUiState
+            val baseState =
+                calculateDetailedBalance(
+                    expenses,
+                    participants,
+                    allSplits,
+                    currentUser,
+                    trip?.currency ?: "¥",
+                )
+            baseState.copy(
+                paymentsToMake = optimizationUi.overriddenPayments ?: baseState.paymentsToMake,
+                involvementCount = (optimizationUi.overriddenPayments ?: baseState.paymentsToMake).size,
+                isOptimizationLoading = optimizationUi.isLoading,
+                isOptimizationApplied = optimizationUi.isApplied,
+                optimizationMessage = optimizationUi.message,
             )
         }.stateIn(screenModelScope, SharingStarted.WhileSubscribed(5000), BalanceUiState())
 
     override fun handleIntent(intent: BalanceIntent) {
         when (intent) {
             is BalanceIntent.MarkAsPaid -> markAsPaid(intent.payment)
+            BalanceIntent.OptimizeSettlements -> optimizeSettlements()
         }
     }
 
@@ -63,6 +86,58 @@ class BalanceScreenModel(
                 creditorId = payment.toId,
                 amount = payment.amount,
             )
+        }
+    }
+
+    private fun optimizeSettlements() {
+        screenModelScope.launch {
+            val currentUi = state.value
+            optimizationState.value =
+                optimizationState.value.copy(
+                    isLoading = true,
+                    message = null,
+                )
+
+            runCatching {
+                val participantsByUserId = currentUi.participants.associateBy { it.userId }
+                val currentUserParticipantId = currentUi.participants.firstOrNull { it.isCurrentUser }?.id
+                val settlements = expenseRepository.getSettlements(tripId)
+
+                settlements.mapNotNull { settlement ->
+                    val fromParticipant = participantsByUserId[settlement.fromUserId] ?: return@mapNotNull null
+                    val toParticipant = participantsByUserId[settlement.toUserId] ?: return@mapNotNull null
+                    val amount = settlement.amount.toDoubleOrNull() ?: return@mapNotNull null
+
+                    SuggestedPayment(
+                        fromId = fromParticipant.id,
+                        fromName = fromParticipant.name,
+                        toId = toParticipant.id,
+                        toName = toParticipant.name,
+                        amount = round(amount * 100.0) / 100.0,
+                    )
+                }.filter { payment ->
+                    currentUserParticipantId != null &&
+                        (payment.fromId == currentUserParticipantId || payment.toId == currentUserParticipantId)
+                }
+            }.onSuccess { optimizedPayments ->
+                val before = currentUi.paymentsToMake.size
+                val after = optimizedPayments.size
+                optimizationState.value =
+                    optimizationState.value.copy(
+                        isLoading = false,
+                        isApplied = true,
+                        overriddenPayments = optimizedPayments,
+                        message = "$before перевода -> $after перевода",
+                    )
+            }.onFailure {
+                optimizationState.value =
+                    optimizationState.value.copy(
+                        isLoading = false,
+                        isApplied = false,
+                        message = null,
+                    )
+                globalNotifier.notifyError("Не удалось оптимизировать расчеты. Попробуйте снова.")
+            }
         }
     }
 

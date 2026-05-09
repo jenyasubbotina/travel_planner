@@ -12,6 +12,11 @@ object NetworkDebugLogger {
 
     fun isActive(): Boolean = isEnabled
 
+    fun logRaw(tag: String, message: String) {
+        if (!isEnabled) return
+        println("[net][$tag] $message")
+    }
+
     fun start(tag: String, method: String, url: String): TimeSource.Monotonic.ValueTimeMark? {
         if (!isEnabled) return null
         println("[net][$tag] -> $method $url")

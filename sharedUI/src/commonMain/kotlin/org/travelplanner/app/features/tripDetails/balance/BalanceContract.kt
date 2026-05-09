@@ -11,6 +11,9 @@ data class BalanceUiState(
     val paymentsToMake: List<SuggestedPayment> = emptyList(),
     val history: List<PaymentHistoryItem> = emptyList(),
     val currency: String = "¥",
+    val isOptimizationLoading: Boolean = false,
+    val isOptimizationApplied: Boolean = false,
+    val optimizationMessage: String? = null,
 ) : UiState
 
 data class ParticipantBalanceItem(
@@ -42,6 +45,8 @@ sealed interface BalanceIntent : UiIntent {
     data class MarkAsPaid(
         val payment: SuggestedPayment,
     ) : BalanceIntent
+
+    data object OptimizeSettlements : BalanceIntent
 }
 
 sealed interface BalanceEffect : UiEffect
