@@ -60,6 +60,7 @@ fun AuthForm(
 ) {
     val authError by userSession.authError.collectAsState()
     val isAuthenticating by userSession.isAuthenticating.collectAsState()
+    val registrationPending by userSession.registrationPending.collectAsState()
     val availableUsers by userSession.availableUsers.collectAsState()
     val scope = rememberCoroutineScope()
 
@@ -140,6 +141,55 @@ fun AuthForm(
                 isActive = mode == AuthMode.Register,
                 onClick = { mode = AuthMode.Register },
             )
+        }
+
+        registrationPending?.let { pending ->
+            Spacer(Modifier.height(16.dp))
+            Box(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .background(
+                            color = AppColors.SuccessBg,
+                            shape = RoundedCornerShape(12.dp),
+                        ).padding(horizontal = 14.dp, vertical = 14.dp),
+            ) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text =
+                            pending.serverMessage.trim().ifBlank {
+                                "Проверьте почту — мы отправили ссылку для подтверждения."
+                            },
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = AppColors.SuccessText,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        text = pending.email,
+                        fontSize = 13.sp,
+                        color = AppColors.TextPrimary,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text =
+                            "Откройте ссылку из письма (в почтовом клиенте или во встроенном браузере), затем войдите с тем же паролем.",
+                        fontSize = 12.sp,
+                        color = AppColors.TextSecondary,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(
+                        onClick = {
+                            email = pending.email
+                            userSession.clearRegistrationPending()
+                            mode = AuthMode.Login
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Перейти ко входу", fontSize = 14.sp, color = AppColors.Primary)
+                    }
+                }
+            }
         }
 
         Spacer(Modifier.height(20.dp))

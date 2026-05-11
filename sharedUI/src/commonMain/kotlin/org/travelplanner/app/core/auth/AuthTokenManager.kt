@@ -115,7 +115,7 @@ class AuthTokenManager(
         email: String,
         displayName: String,
         password: String,
-    ): AuthSession {
+    ): RegisterPendingResponse {
         val response =
             authClient.post("${baseUrlProvider()}/api/v1/auth/register") {
                 contentType(ContentType.Application.Json)
@@ -127,10 +127,7 @@ class AuthTokenManager(
             println("[auth] register failed: HTTP ${status.value} $errorText")
             throw AuthRequestException(status.value, errorText)
         }
-        val authResponse: AuthResponse = response.body()
-        val session = authResponse.toSession()
-        saveSession(session)
-        return session
+        return response.body()
     }
 
     suspend fun login(
@@ -153,21 +150,6 @@ class AuthTokenManager(
         saveSession(session)
         return session
     }
-
-    suspend fun registerOrLogin(
-        email: String,
-        displayName: String,
-        password: String,
-    ): AuthSession =
-        try {
-            register(email, displayName, password)
-        } catch (e: AuthRequestException) {
-            if (e.statusCode == 409) {
-                login(email, password)
-            } else {
-                throw e
-            }
-        }
 
     suspend fun refreshAccessToken(): String? =
         refreshMutex.withLock {
