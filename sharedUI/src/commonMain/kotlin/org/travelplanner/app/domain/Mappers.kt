@@ -76,6 +76,7 @@ fun ExpenseSplitEntity.toDomain(): ExpenseSplit =
         expenseId = expenseId,
         participantId = participantId,
         amount = amount,
+        value = inputValue,
         isPaid = isPaid != 0L,
     )
 

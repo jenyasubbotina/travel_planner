@@ -273,34 +273,57 @@ fun ExpenseFormSheet(
             }
 
             InputLabel("Как разделить")
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                SplitMethodButton(
-                    text = "Поровну",
-                    selected = state.splitMethod == SplitMethod.EQUAL,
-                    onClick = {
-                        screenModel.handleIntent(
-                            ExpenseFormIntent.SplitMethodChanged(
-                                SplitMethod.EQUAL,
-                            ),
-                        )
-                    },
-                    modifier = Modifier.weight(1f),
-                )
-                SplitMethodButton(
-                    text = "Вручную",
-                    selected = state.splitMethod == SplitMethod.MANUAL,
-                    onClick = {
-                        screenModel.handleIntent(
-                            ExpenseFormIntent.SplitMethodChanged(
-                                SplitMethod.MANUAL,
-                            ),
-                        )
-                    },
-                    modifier = Modifier.weight(1f),
-                )
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    SplitMethodButton(
+                        text = "Поровну",
+                        selected = state.splitMethod == SplitMethod.EQUAL,
+                        onClick = {
+                            screenModel.handleIntent(
+                                ExpenseFormIntent.SplitMethodChanged(SplitMethod.EQUAL),
+                            )
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                    SplitMethodButton(
+                        text = "Вручную",
+                        selected = state.splitMethod == SplitMethod.EXACT_AMOUNT,
+                        onClick = {
+                            screenModel.handleIntent(
+                                ExpenseFormIntent.SplitMethodChanged(SplitMethod.EXACT_AMOUNT),
+                            )
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    SplitMethodButton(
+                        text = "Проценты",
+                        selected = state.splitMethod == SplitMethod.PERCENTAGE,
+                        onClick = {
+                            screenModel.handleIntent(
+                                ExpenseFormIntent.SplitMethodChanged(SplitMethod.PERCENTAGE),
+                            )
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                    SplitMethodButton(
+                        text = "Доли",
+                        selected = state.splitMethod == SplitMethod.SHARES,
+                        onClick = {
+                            screenModel.handleIntent(
+                                ExpenseFormIntent.SplitMethodChanged(SplitMethod.SHARES),
+                            )
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
             }
 
             Box(
@@ -320,6 +343,7 @@ fun ExpenseFormSheet(
                         ParticipantRow(
                             item = item,
                             displayAmount = "${state.currency}${item.calculatedAmount.toInt()}",
+                            currency = state.currency,
                             splitMethod = state.splitMethod,
                             onToggle = {
                                 screenModel.handleIntent(
@@ -328,9 +352,9 @@ fun ExpenseFormSheet(
                                     ),
                                 )
                             },
-                            onManualInput = { valStr ->
+                            onInputValue = { valStr ->
                                 screenModel.handleIntent(
-                                    ExpenseFormIntent.ManualAmountChanged(
+                                    ExpenseFormIntent.InputValueChanged(
                                         item.participant.id,
                                         valStr,
                                     ),
@@ -339,7 +363,7 @@ fun ExpenseFormSheet(
                         )
                     }
                     val participantsMessage = state.participantsError ?: state.splitError
-                    if (participantsMessage != null && (state.showErrors || state.splitMethod == SplitMethod.MANUAL)) {
+                    if (participantsMessage != null && (state.showErrors || state.splitMethod != SplitMethod.EQUAL)) {
                         Text(
                             text = participantsMessage,
                             color = Color(0xFFD32F2F),
@@ -535,20 +559,26 @@ fun SplitMethodButton(
 fun ParticipantRow(
     item: ParticipantSplitState,
     displayAmount: String,
+    currency: String,
     splitMethod: SplitMethod,
     onToggle: () -> Unit,
-    onManualInput: (String) -> Unit,
+    onInputValue: (String) -> Unit,
 ) {
     Row(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .clickable { onToggle() }
                 .padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier =
+                Modifier
+                    .weight(1f)
+                    .clickable { onToggle() },
+        ) {
             Checkbox(
                 checked = item.isSelected,
                 onCheckedChange = { onToggle() },
@@ -558,27 +588,95 @@ fun ParticipantRow(
             Text(item.participant.name, fontSize = 16.sp, color = Color(0xFF0A0A0A))
         }
 
-        if (splitMethod == SplitMethod.EQUAL) {
-            val text = if (item.isSelected) displayAmount else "—"
-            Text(text, fontSize = 14.sp, color = Color(0xFF6A7282))
-        } else {
-            BasicTextField(
-                value = item.manualAmount,
-                onValueChange = onManualInput,
-                textStyle =
-                    TextStyle(
-                        fontSize = 16.sp,
-                        color = if (item.isSelected) Color(0xFF155DFC) else Color.Gray,
-                        textAlign = TextAlign.End,
-                    ),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier =
-                    Modifier
-                        .width(80.dp)
-                        .background(Color.White, RoundedCornerShape(8.dp))
-                        .border(1.dp, Color(0xFFE5E7EB), RoundedCornerShape(8.dp))
-                        .padding(8.dp),
-            )
+        when (splitMethod) {
+            SplitMethod.EQUAL -> {
+                val text = if (item.isSelected) displayAmount else "—"
+                Text(text, fontSize = 14.sp, color = Color(0xFF6A7282))
+            }
+
+            SplitMethod.EXACT_AMOUNT -> {
+                SplitInputField(
+                    value = item.inputValue,
+                    isSelected = item.isSelected,
+                    suffix = currency,
+                    onValueChange = onInputValue,
+                )
+            }
+
+            SplitMethod.PERCENTAGE -> {
+                Column(horizontalAlignment = Alignment.End) {
+                    SplitInputField(
+                        value = item.inputValue,
+                        isSelected = item.isSelected,
+                        suffix = "%",
+                        onValueChange = onInputValue,
+                    )
+                    if (item.isSelected) {
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            "$currency${item.calculatedAmount.toInt()}",
+                            fontSize = 12.sp,
+                            color = Color(0xFF6A7282),
+                        )
+                    }
+                }
+            }
+
+            SplitMethod.SHARES -> {
+                Column(horizontalAlignment = Alignment.End) {
+                    SplitInputField(
+                        value = item.inputValue,
+                        isSelected = item.isSelected,
+                        suffix = "доли",
+                        onValueChange = onInputValue,
+                    )
+                    if (item.isSelected) {
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            "$currency${item.calculatedAmount.toInt()}",
+                            fontSize = 12.sp,
+                            color = Color(0xFF6A7282),
+                        )
+                    }
+                }
+            }
         }
+    }
+}
+
+@Composable
+private fun SplitInputField(
+    value: String,
+    isSelected: Boolean,
+    suffix: String,
+    onValueChange: (String) -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier =
+            Modifier
+                .background(Color.White, RoundedCornerShape(8.dp))
+                .border(1.dp, Color(0xFFE5E7EB), RoundedCornerShape(8.dp))
+                .padding(horizontal = 8.dp, vertical = 8.dp),
+    ) {
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            textStyle =
+                TextStyle(
+                    fontSize = 16.sp,
+                    color = if (isSelected) Color(0xFF155DFC) else Color.Gray,
+                    textAlign = TextAlign.End,
+                ),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.width(56.dp),
+            singleLine = true,
+        )
+        Spacer(Modifier.width(4.dp))
+        Text(
+            suffix,
+            fontSize = 14.sp,
+            color = Color(0xFF99A1AF),
+        )
     }
 }

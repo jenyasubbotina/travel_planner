@@ -320,10 +320,12 @@ private fun humanCategory(raw: String): String =
         else -> "📌 Прочее"
     }
 
-private fun humanSplitType(raw: String): String =
+internal fun humanSplitType(raw: String): String =
     when (raw.uppercase()) {
         "EQUAL" -> "Поровну"
+        "EXACT_AMOUNT" -> "Вручную"
+        "PERCENTAGE" -> "Проценты"
+        "SHARES" -> "Доли"
         "MANUAL" -> "Вручную"
-        "PERCENT" -> "Доли"
-        else -> "Поровну"
+        else -> raw
     }

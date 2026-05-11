@@ -28,6 +28,12 @@ import org.travelplanner.app.domain.Expense
 import org.travelplanner.app.domain.toDomain
 import kotlin.time.Clock
 
+data class SplitInput(
+    val localParticipantId: Long,
+    val value: String,
+    val amount: String,
+)
+
 class ExpenseRepository(
     private val db: MyDatabase,
     private val api: TripApiService,
@@ -165,6 +171,7 @@ class ExpenseRepository(
                     expenseId = response.id,
                     participantId = participant.userId,
                     amount = splitResponse.amountInExpenseCurrency,
+                    inputValue = splitResponse.value,
                     isPaid = 0,
                 )
             }
@@ -233,7 +240,8 @@ class ExpenseRepository(
         amount: Double,
         category: String,
         payerLocalId: Long,
-        splits: Map<Long, Double>,
+        splitType: String,
+        splits: List<SplitInput>,
         photoBytes: ByteArray? = null,
     ) {
         val payerParticipant = queries.getParticipantById(payerLocalId).executeAsOne()
@@ -245,16 +253,16 @@ class ExpenseRepository(
                 .executeAsOneOrNull()
                 ?.currency ?: "USD"
 
-        val splitParticipants =
-            splits.entries.map { (localId, splitAmount) ->
-                val participant = queries.getParticipantById(localId).executeAsOne()
-                participant.userId to splitAmount
+        val resolvedSplits =
+            splits.map { input ->
+                val participant = queries.getParticipantById(input.localParticipantId).executeAsOne()
+                Triple(participant.userId, input.value, input.amount)
             }
         val globalSplits =
-            splitParticipants.map { (userId, splitAmount) ->
+            resolvedSplits.map { (userId, value, _) ->
                 V2ExpenseSplitRequest(
                     participantUserId = userId,
-                    value = splitAmount.toMoneyString(),
+                    value = value,
                 )
             }
 
@@ -271,6 +279,7 @@ class ExpenseRepository(
                 category = category,
                 payerUserId = globalPayerId,
                 expenseDate = expenseDate,
+                splitType = splitType,
                 splits = globalSplits,
             )
 
@@ -303,13 +312,14 @@ class ExpenseRepository(
                 pendingUpdateJson = null,
                 imageUrl = photoLocalPath?.let { "pending://${it.substringAfter('|')}" },
                 version = 0L,
-                splitType = "EQUAL",
+                splitType = splitType,
             )
-            splitParticipants.forEach { (participantUserId, splitAmount) ->
+            resolvedSplits.forEach { (participantUserId, value, splitAmount) ->
                 queries.insertSplit(
                     expenseId = expenseId,
                     participantId = participantUserId,
-                    amount = splitAmount.toMoneyString(),
+                    amount = splitAmount,
+                    inputValue = value,
                     isPaid = 0,
                 )
             }
@@ -404,7 +414,8 @@ class ExpenseRepository(
         amount: Double,
         category: String,
         payerLocalId: Long,
-        splits: Map<Long, Double>,
+        splitType: String,
+        splits: List<SplitInput>,
         existingImageUrl: String? = null,
         photoBytes: ByteArray? = null,
         force: Boolean = false,
@@ -413,16 +424,16 @@ class ExpenseRepository(
         val payerParticipant = queries.getParticipantById(payerLocalId).executeAsOne()
         val globalPayerId = payerParticipant.userId
 
-        val splitParticipants =
-            splits.entries.map { (localId, splitAmount) ->
-                val participant = queries.getParticipantById(localId).executeAsOne()
-                participant.userId to splitAmount
+        val resolvedSplits =
+            splits.map { input ->
+                val participant = queries.getParticipantById(input.localParticipantId).executeAsOne()
+                Triple(participant.userId, input.value, input.amount)
             }
         val globalSplits =
-            splitParticipants.map { (userId, splitAmount) ->
+            resolvedSplits.map { (userId, value, _) ->
                 V2ExpenseSplitRequest(
                     participantUserId = userId,
-                    value = splitAmount.toMoneyString(),
+                    value = value,
                 )
             }
 
@@ -435,6 +446,7 @@ class ExpenseRepository(
                 category = category,
                 payerUserId = globalPayerId,
                 expenseDate = existingExpense.date,
+                splitType = splitType,
                 splits = globalSplits,
                 expectedVersion = existingExpense.version,
             )
@@ -465,15 +477,16 @@ class ExpenseRepository(
                         ?: existingImageUrl
                         ?: existingExpense.imageUrl,
                 version = existingExpense.version,
-                splitType = existingExpense.splitType,
+                splitType = splitType,
                 id = expenseLocalId,
             )
             queries.deleteSplitsForExpense(expenseLocalId)
-            splitParticipants.forEach { (participantUserId, splitAmount) ->
+            resolvedSplits.forEach { (participantUserId, value, splitAmount) ->
                 queries.insertSplit(
                     expenseId = expenseLocalId,
                     participantId = participantUserId,
-                    amount = splitAmount.toMoneyString(),
+                    amount = splitAmount,
+                    inputValue = value,
                     isPaid = 0,
                 )
             }
@@ -555,13 +568,15 @@ class ExpenseRepository(
         amount: Double,
     ) {
         val creditor = queries.getParticipantById(creditorId).executeAsOne()
+        val amountStr = amount.toMoneyString()
         addExpense(
             tripId = tripId,
             title = "Платёж для ${creditor.name}",
             amount = amount,
             category = "PAYMENT",
             payerLocalId = debtorId,
-            splits = mapOf(creditorId to amount),
+            splitType = "EXACT_AMOUNT",
+            splits = listOf(SplitInput(creditorId, amountStr, amountStr)),
         )
     }
 

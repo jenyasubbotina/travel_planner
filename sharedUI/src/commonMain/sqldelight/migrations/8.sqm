@@ -1,0 +1,1 @@
+ALTER TABLE expenseSplitEntity ADD COLUMN inputValue TEXT NOT NULL DEFAULT '0';

@@ -101,7 +101,8 @@ data class ExpenseDetailsScreen(
         Scaffold(
             containerColor = Color(0xFFF9FAFB),
             bottomBar = {
-                if (detailsState is ExpenseDetailsUiState.Success) {
+                val success = detailsState as? ExpenseDetailsUiState.Success
+                if (success != null && success.details.canEdit) {
                     ActionsBar(
                         onEdit = {
                             formModel.handleIntent(ExpenseFormIntent.Initialize(expenseId))

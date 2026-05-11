@@ -22,5 +22,6 @@ data class ExpenseSplit(
     val expenseId: String,
     val participantId: String,
     val amount: String,
+    val value: String = "0",
     val isPaid: Boolean,
 )

@@ -81,6 +81,14 @@ class ExpenseDetailsScreenModel(
                             )
                         }
 
+                    val canEdit =
+                        myUserId != null &&
+                            (
+                                expense.creatorUserId == myUserId ||
+                                    expense.payerName == myUserId ||
+                                    splits.any { it.participantId == myUserId }
+                            )
+
                     ExpenseDetailsUiState.Success(
                         ExpenseFullDetails(
                             expense,
@@ -88,6 +96,7 @@ class ExpenseDetailsScreenModel(
                             historyUiModels,
                             participants,
                             currency,
+                            canEdit,
                         ),
                     )
                 }

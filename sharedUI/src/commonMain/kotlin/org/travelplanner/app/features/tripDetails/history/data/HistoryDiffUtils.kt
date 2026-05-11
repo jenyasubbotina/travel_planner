@@ -9,6 +9,7 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import org.travelplanner.app.domain.Participant
+import org.travelplanner.app.features.tripDetails.expenses.humanSplitType
 
 object HistoryDiffUtils {
     private val jsonParser = Json { ignoreUnknownKeys = true }
@@ -242,7 +243,9 @@ object HistoryDiffUtils {
                 "category",
             )?.let { (o, n) -> add("Категория: ${categoryLabel(o)} ➝ ${categoryLabel(n)}") }
             diffString(old, new, "expenseDate")?.let { (o, n) -> add("Дата: $o ➝ $n") }
-            diffString(old, new, "splitType")?.let { (o, n) -> add("Тип разделения: $o ➝ $n") }
+            diffString(old, new, "splitType")?.let { (o, n) ->
+                add("Тип разделения: ${humanSplitType(o)} ➝ ${humanSplitType(n)}")
+            }
             diffString(
                 old,
                 new,

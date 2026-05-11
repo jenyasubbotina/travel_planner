@@ -29,11 +29,29 @@ data class AddExpenseState(
 data class ParticipantSplitState(
     val participant: Participant,
     val isSelected: Boolean = true,
-    val manualAmount: String = "",
+    val inputValue: String = "",
     val calculatedAmount: Double = 0.0,
 )
 
-enum class SplitMethod { EQUAL, MANUAL }
+enum class SplitMethod { EQUAL, EXACT_AMOUNT, PERCENTAGE, SHARES }
+
+fun SplitMethod.toServerString(): String =
+    when (this) {
+        SplitMethod.EQUAL -> "EQUAL"
+        SplitMethod.EXACT_AMOUNT -> "EXACT_AMOUNT"
+        SplitMethod.PERCENTAGE -> "PERCENTAGE"
+        SplitMethod.SHARES -> "SHARES"
+    }
+
+fun String.toSplitMethod(): SplitMethod =
+    when (uppercase()) {
+        "EQUAL" -> SplitMethod.EQUAL
+        "EXACT_AMOUNT" -> SplitMethod.EXACT_AMOUNT
+        "PERCENTAGE" -> SplitMethod.PERCENTAGE
+        "SHARES" -> SplitMethod.SHARES
+        "MANUAL" -> SplitMethod.EXACT_AMOUNT
+        else -> SplitMethod.EQUAL
+    }
 
 sealed interface ExpenseFormIntent : UiIntent {
     data class Initialize(
@@ -64,7 +82,7 @@ sealed interface ExpenseFormIntent : UiIntent {
         val method: SplitMethod,
     ) : ExpenseFormIntent
 
-    data class ManualAmountChanged(
+    data class InputValueChanged(
         val participantId: Long,
         val value: String,
     ) : ExpenseFormIntent

@@ -12,10 +12,13 @@ import org.travelplanner.app.core.UserSession
 import org.travelplanner.app.core.Validation
 import org.travelplanner.app.core.toEpochMillis
 import org.travelplanner.app.core.toMoneyDouble
+import org.travelplanner.app.core.toMoneyString
 import org.travelplanner.app.data.ExpenseRepository
 import org.travelplanner.app.data.ParticipantRepository
+import org.travelplanner.app.data.SplitInput
 import org.travelplanner.app.data.TripRepository
 import kotlin.math.abs
+import kotlin.math.round
 
 class ExpenseFormScreenModel(
     private val tripId: String,
@@ -66,8 +69,8 @@ class ExpenseFormScreenModel(
                 onSplitMethodChange(intent.method)
             }
 
-            is ExpenseFormIntent.ManualAmountChanged -> {
-                onManualAmountChange(
+            is ExpenseFormIntent.InputValueChanged -> {
+                onInputValueChange(
                     intent.participantId,
                     intent.value,
                 )
@@ -120,30 +123,34 @@ class ExpenseFormScreenModel(
                     expenseRepository.getExpenseById(expenseId).firstOrNull() ?: return@launch
                 val splits = expenseRepository.getExpenseSplitsFlow(expenseId).first()
 
-                val amounts = splits.map { it.amount.toMoneyDouble() }
-                val isManual =
-                    if (amounts.isNotEmpty()) {
-                        val avg = amounts.average()
-                        amounts.any { abs(it - avg) > 0.1 }
-                    } else {
-                        false
-                    }
+                val mode = expense.splitType.toSplitMethod()
 
                 updateState {
                     AddExpenseState(
-                        amount = expense.amount.toMoneyDouble().toInt().toString(),
+                        amount =
+                            expense.amount
+                                .toMoneyDouble()
+                                .toInt()
+                                .toString(),
                         category = expense.category,
                         description = expense.title,
                         date = expense.date.toEpochMillis(),
                         payerId = participants.find { it.name == expense.payerName }?.id,
-                        splitMethod = if (isManual) SplitMethod.MANUAL else SplitMethod.EQUAL,
+                        splitMethod = mode,
                         participants =
                             participants.map { p ->
                                 val existingSplit = splits.find { it.participantId == p.userId }
                                 ParticipantSplitState(
                                     participant = p,
                                     isSelected = existingSplit != null,
-                                    manualAmount = existingSplit?.amount?.toMoneyDouble()?.toInt()?.toString() ?: "",
+                                    inputValue =
+                                        existingSplit?.let {
+                                            displayInputValue(
+                                                mode,
+                                                it.value,
+                                                it.amount,
+                                            )
+                                        } ?: "",
                                 )
                             },
                         imageUrl = expense.imageUrl,
@@ -158,22 +165,110 @@ class ExpenseFormScreenModel(
 
     private fun onSplitMethodChange(method: SplitMethod) {
         val oldMethod = currentState.splitMethod
-        updateState { copy(splitMethod = method) }
+        if (oldMethod == method) return
 
-        if (oldMethod == SplitMethod.EQUAL && method == SplitMethod.MANUAL) {
-            val total = currentState.amount.toDoubleOrNull() ?: 0.0
-            val activeCount = currentState.participants.count { it.isSelected }
-            if (activeCount > 0) {
-                val share = (total / activeCount).toInt().toString()
-                val updatedParts =
-                    currentState.participants.map {
-                        if (it.isSelected) it.copy(manualAmount = share) else it
-                    }
-                updateState { copy(participants = updatedParts) }
-            }
-        }
+        val total = currentState.amount.toDoubleOrNull() ?: 0.0
+        val seeded = seedForMode(oldMethod, method, currentState.participants, total)
+        updateState { copy(splitMethod = method, participants = seeded) }
         recalculate()
     }
+
+    private fun seedForMode(
+        oldMethod: SplitMethod,
+        newMethod: SplitMethod,
+        participants: List<ParticipantSplitState>,
+        total: Double,
+    ): List<ParticipantSplitState> {
+        val activeCount = participants.count { it.isSelected }
+
+        fun distributeWithRemainder(
+            per: Double,
+            sumTarget: Double,
+        ): List<Pair<Int, Double>> {
+            val selectedIdx =
+                participants.withIndex().filter { it.value.isSelected }.map { it.index }
+            if (selectedIdx.isEmpty()) return emptyList()
+            val floored = (per * 100).toInt() / 100.0
+            val results = selectedIdx.map { it to floored }.toMutableList()
+            val current = floored * selectedIdx.size
+            val drift = sumTarget - current
+            if (drift != 0.0 && results.isNotEmpty()) {
+                val last = results.last()
+                results[results.size - 1] = last.first to round((last.second + drift) * 100) / 100
+            }
+            return results
+        }
+
+        return when (newMethod) {
+            SplitMethod.EQUAL -> {
+                participants.map { it.copy(inputValue = "") }
+            }
+
+            SplitMethod.EXACT_AMOUNT -> {
+                if (oldMethod == SplitMethod.EQUAL && activeCount > 0) {
+                    val share = (total / activeCount).toInt().toString()
+                    participants.map { if (it.isSelected) it.copy(inputValue = share) else it }
+                } else {
+                    participants.map {
+                        if (it.isSelected) {
+                            it.copy(
+                                inputValue = it.calculatedAmount.toInt().toString(),
+                            )
+                        } else {
+                            it
+                        }
+                    }
+                }
+            }
+
+            SplitMethod.PERCENTAGE -> {
+                if (activeCount == 0) {
+                    participants.map { it.copy(inputValue = "") }
+                } else if (oldMethod == SplitMethod.EXACT_AMOUNT && total > 0.0) {
+                    val byIdx =
+                        participants.withIndex().filter { it.value.isSelected }.map { (idx, p) ->
+                            val v = (p.inputValue.toDoubleOrNull() ?: 0.0)
+                            idx to (round(100.0 * v / total * 100) / 100)
+                        }
+                    val drift = 100.0 - byIdx.sumOf { it.second }
+                    val adjusted = byIdx.toMutableList()
+                    if (adjusted.isNotEmpty() && drift != 0.0) {
+                        val last = adjusted.last()
+                        adjusted[adjusted.size - 1] =
+                            last.first to (round((last.second + drift) * 100) / 100)
+                    }
+                    val map = adjusted.toMap()
+                    participants.mapIndexed { i, p ->
+                        if (p.isSelected) p.copy(inputValue = formatNumber(map[i] ?: 0.0)) else p
+                    }
+                } else {
+                    val seeded = distributeWithRemainder(100.0 / activeCount, 100.0).toMap()
+                    participants.mapIndexed { i, p ->
+                        if (p.isSelected) p.copy(inputValue = formatNumber(seeded[i] ?: 0.0)) else p
+                    }
+                }
+            }
+
+            SplitMethod.SHARES -> {
+                participants.map { if (it.isSelected) it.copy(inputValue = "1") else it }
+            }
+        }
+    }
+
+    private fun formatNumber(d: Double): String =
+        if (d == d.toLong().toDouble()) d.toLong().toString() else (round(d * 100) / 100).toString()
+
+    private fun displayInputValue(
+        mode: SplitMethod,
+        storedValue: String,
+        storedAmount: String,
+    ): String =
+        when (mode) {
+            SplitMethod.EQUAL -> ""
+            SplitMethod.EXACT_AMOUNT -> storedAmount.toMoneyDouble().toInt().toString()
+            SplitMethod.PERCENTAGE -> formatNumber(storedValue.toDoubleOrNull() ?: 0.0)
+            SplitMethod.SHARES -> storedValue.trim().ifEmpty { "0" }
+        }
 
     private fun onAmountChange(valStr: String) {
         if (valStr.all { it.isDigit() || it == '.' }) {
@@ -187,33 +282,78 @@ class ExpenseFormScreenModel(
         }
     }
 
-    private fun computeAmountError(value: String): String? =
-        if (!Validation.isPositiveAmount(value)) "Введите сумму больше 0" else null
+    private fun computeAmountError(value: String): String? = if (!Validation.isPositiveAmount(value)) "Введите сумму больше 0" else null
 
-    private fun computeDescriptionError(value: String): String? =
-        if (value.isBlank()) "Введите описание" else null
+    private fun computeDescriptionError(value: String): String? = if (value.isBlank()) "Введите описание" else null
 
-    private fun computePayerError(id: Long?): String? =
-        if (id == null) "Выберите, кто оплатил" else null
+    private fun computePayerError(id: Long?): String? = if (id == null) "Выберите, кто оплатил" else null
 
     private fun computeParticipantsError(participants: List<ParticipantSplitState>): String? =
         if (participants.none { it.isSelected }) "Выберите хотя бы одного участника" else null
 
-    private fun onManualAmountChange(
+    private fun onInputValueChange(
         id: Long,
         valStr: String,
     ) {
-        if (valStr.all { it.isDigit() || it == '.' }) {
-            val updated =
-                currentState.participants.map {
-                    if (it.participant.id == id) {
-                        it.copy(manualAmount = valStr, isSelected = true)
-                    } else {
-                        it
-                    }
+        if (!valStr.all { it.isDigit() || it == '.' }) return
+
+        val s = currentState
+        val withTyped =
+            s.participants.map {
+                if (it.participant.id == id) {
+                    it.copy(inputValue = valStr, isSelected = true)
+                } else {
+                    it
                 }
-            updateState { copy(participants = updated) }
-            recalculate()
+            }
+
+        val updated =
+            if (s.splitMethod == SplitMethod.PERCENTAGE) {
+                rebalancePercentages(withTyped, editedId = id)
+            } else {
+                withTyped
+            }
+
+        updateState { copy(participants = updated) }
+        recalculate()
+    }
+
+    private fun rebalancePercentages(
+        participants: List<ParticipantSplitState>,
+        editedId: Long,
+    ): List<ParticipantSplitState> {
+        val typed =
+            (
+                participants.find { it.participant.id == editedId }?.inputValue?.toDoubleOrNull()
+                    ?: 0.0
+            ).coerceIn(0.0, 100.0)
+        val others = participants.filter { it.isSelected && it.participant.id != editedId }
+        if (others.isEmpty()) return participants
+
+        val remaining = (100.0 - typed).coerceAtLeast(0.0)
+        val perOther = remaining / others.size
+        val perOtherFloored = (perOther * 100).toLong() / 100.0
+        val drift = remaining - perOtherFloored * others.size
+
+        val lastOtherId = others.last().participant.id
+        return participants.map { p ->
+            when {
+                p.participant.id == editedId -> {
+                    p
+                }
+
+                !p.isSelected -> {
+                    p
+                }
+
+                p.participant.id == lastOtherId -> {
+                    p.copy(inputValue = formatNumber(round((perOtherFloored + drift) * 100) / 100))
+                }
+
+                else -> {
+                    p.copy(inputValue = formatNumber(perOtherFloored))
+                }
+            }
         }
     }
 
@@ -245,42 +385,103 @@ class ExpenseFormScreenModel(
             return
         }
 
-        if (s.splitMethod == SplitMethod.EQUAL) {
-            val share = total / activeCount
-            val updated =
-                s.participants.map {
-                    it.copy(calculatedAmount = if (it.isSelected) share else 0.0)
+        when (s.splitMethod) {
+            SplitMethod.EQUAL -> {
+                val share = total / activeCount
+                val updated =
+                    s.participants.map {
+                        it.copy(calculatedAmount = if (it.isSelected) share else 0.0)
+                    }
+                updateState {
+                    copy(
+                        participants = updated,
+                        isSplitValid = true,
+                        splitError = null,
+                        participantsError = null,
+                    )
                 }
-            updateState {
-                copy(
-                    participants = updated,
-                    isSplitValid = true,
-                    splitError = null,
-                    participantsError = null,
-                )
             }
-        } else {
-            val updated =
-                s.participants.map {
-                    val amt = it.manualAmount.toDoubleOrNull() ?: 0.0
-                    it.copy(calculatedAmount = if (it.isSelected) amt else 0.0)
+
+            SplitMethod.EXACT_AMOUNT -> {
+                val updated =
+                    s.participants.map {
+                        val amt = it.inputValue.toDoubleOrNull() ?: 0.0
+                        it.copy(calculatedAmount = if (it.isSelected) amt else 0.0)
+                    }
+                val sumOfManual = updated.filter { it.isSelected }.sumOf { it.calculatedAmount }
+                val diff = total - sumOfManual
+                val isValid = abs(diff) < 0.01
+                val errorMsg =
+                    when {
+                        diff > 0 -> "Не хватает: ${diff.toInt()}"
+                        diff < 0 -> "Превышение на: ${abs(diff).toInt()}"
+                        else -> null
+                    }
+                updateState {
+                    copy(
+                        participants = updated,
+                        isSplitValid = isValid,
+                        splitError = errorMsg,
+                        participantsError = null,
+                    )
                 }
-            val sumOfManual = updated.filter { it.isSelected }.sumOf { it.calculatedAmount }
-            val diff = total - sumOfManual
-            val isValid = abs(diff) < 0.01
-            val errorMsg =
-                when {
-                    diff > 0 -> "Не хватает: ${diff.toInt()}"
-                    diff < 0 -> "Превышение на: ${abs(diff).toInt()}"
-                    else -> null
+            }
+
+            SplitMethod.PERCENTAGE -> {
+                val updated =
+                    s.participants.map {
+                        val pct = it.inputValue.toDoubleOrNull() ?: 0.0
+                        val amount = if (it.isSelected) total * pct / 100.0 else 0.0
+                        it.copy(calculatedAmount = amount)
+                    }
+                val sumPct =
+                    updated
+                        .filter { it.isSelected }
+                        .sumOf { it.inputValue.toDoubleOrNull() ?: 0.0 }
+                val diff = 100.0 - sumPct
+                val isValid = abs(diff) < 0.01
+                val errorMsg =
+                    when {
+                        diff > 0 -> "Не хватает ${formatNumber(diff)}%"
+                        diff < 0 -> "Превышение на ${formatNumber(abs(diff))}%"
+                        else -> null
+                    }
+                updateState {
+                    copy(
+                        participants = updated,
+                        isSplitValid = isValid,
+                        splitError = errorMsg,
+                        participantsError = null,
+                    )
                 }
-            updateState {
-                copy(
-                    participants = updated,
-                    isSplitValid = isValid,
-                    splitError = errorMsg,
-                    participantsError = null,
-                )
+            }
+
+            SplitMethod.SHARES -> {
+                val totalShares =
+                    s.participants
+                        .filter { it.isSelected }
+                        .sumOf { it.inputValue.toDoubleOrNull() ?: 0.0 }
+                val updated =
+                    s.participants.map {
+                        val share = it.inputValue.toDoubleOrNull() ?: 0.0
+                        val amount =
+                            if (it.isSelected && totalShares > 0) {
+                                total * share / totalShares
+                            } else {
+                                0.0
+                            }
+                        it.copy(calculatedAmount = amount)
+                    }
+                val isValid = totalShares > 0
+                val errorMsg = if (!isValid) "Введите долю хотя бы для одного" else null
+                updateState {
+                    copy(
+                        participants = updated,
+                        isSplitValid = isValid,
+                        splitError = errorMsg,
+                        participantsError = null,
+                    )
+                }
             }
         }
     }
@@ -293,10 +494,11 @@ class ExpenseFormScreenModel(
         val payerError = computePayerError(s.payerId)
         val participantsError = computeParticipantsError(s.participants)
 
-        val hasFieldErrors = amountError != null ||
-            descriptionError != null ||
-            payerError != null ||
-            participantsError != null
+        val hasFieldErrors =
+            amountError != null ||
+                descriptionError != null ||
+                payerError != null ||
+                participantsError != null
 
         if (hasFieldErrors || !s.isSplitValid) {
             updateState {
@@ -314,11 +516,37 @@ class ExpenseFormScreenModel(
 
         val total = s.amount.toDoubleOrNull() ?: 0.0
         val selectedPayerId = s.payerId!!
+        val splitTypeStr = s.splitMethod.toServerString()
 
-        val splitsMap =
+        val splitInputs =
             s.participants
                 .filter { it.isSelected }
-                .associate { it.participant.id to it.calculatedAmount }
+                .map { participant ->
+                    val amountStr = participant.calculatedAmount.toMoneyString()
+                    val valueStr =
+                        when (s.splitMethod) {
+                            SplitMethod.EQUAL -> {
+                                "0"
+                            }
+
+                            SplitMethod.EXACT_AMOUNT -> {
+                                amountStr
+                            }
+
+                            SplitMethod.PERCENTAGE -> {
+                                (participant.inputValue.toDoubleOrNull() ?: 0.0).toMoneyString()
+                            }
+
+                            SplitMethod.SHARES -> {
+                                participant.inputValue.trim().ifEmpty { "0" }
+                            }
+                        }
+                    SplitInput(
+                        localParticipantId = participant.participant.id,
+                        value = valueStr,
+                        amount = amountStr,
+                    )
+                }
 
         screenModelScope.launch {
             try {
@@ -329,7 +557,8 @@ class ExpenseFormScreenModel(
                         amount = total,
                         category = s.category,
                         payerLocalId = selectedPayerId,
-                        splits = splitsMap,
+                        splitType = splitTypeStr,
+                        splits = splitInputs,
                         photoBytes = s.photoBytes,
                     )
                 } else {
@@ -340,7 +569,8 @@ class ExpenseFormScreenModel(
                         amount = total,
                         category = s.category,
                         payerLocalId = selectedPayerId,
-                        splits = splitsMap,
+                        splitType = splitTypeStr,
+                        splits = splitInputs,
                         existingImageUrl = s.imageUrl,
                         photoBytes = s.photoBytes,
                     )

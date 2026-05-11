@@ -19,6 +19,7 @@ data class ExpenseFullDetails(
     val history: List<ExpenseHistoryUiModel>,
     val participants: List<Participant>,
     val currency: String = "¥",
+    val canEdit: Boolean = true,
 )
 
 sealed class ExpenseDetailsUiState : UiState {
