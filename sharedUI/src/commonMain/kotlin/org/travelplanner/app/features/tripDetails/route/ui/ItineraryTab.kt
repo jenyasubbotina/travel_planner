@@ -295,7 +295,7 @@ fun DayChip(
     }
 }
 
-private val TIME_COL_WIDTH = 45.dp
+private val TIME_COL_WIDTH = 52.dp
 private val LEFT_PADDING = 16.dp
 private val DOT_SPACER = 12.dp
 private val DOT_SIZE = 12.dp
@@ -403,6 +403,8 @@ fun EventListItem(
                     fontSize = 14.sp,
                     color = Color(0xFF4A5565),
                     fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    softWrap = false,
                 )
             }
 

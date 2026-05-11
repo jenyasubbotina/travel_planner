@@ -573,7 +573,7 @@ fun ActionButton(
     Column(
         modifier =
             modifier
-                .height(128.dp)
+                .height(140.dp)
                 .clip(RoundedCornerShape(16.dp))
                 .background(Color.White)
                 .clickable { onClick() }
@@ -591,7 +591,14 @@ fun ActionButton(
             Text(icon, fontSize = 24.sp)
         }
         Spacer(Modifier.height(8.dp))
-        Text(text, fontSize = 14.sp, textAlign = TextAlign.Center, lineHeight = 20.sp)
+        Text(
+            text,
+            fontSize = 14.sp,
+            textAlign = TextAlign.Center,
+            lineHeight = 20.sp,
+            minLines = 2,
+            maxLines = 2,
+        )
     }
 }
 
