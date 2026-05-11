@@ -2,16 +2,13 @@ package org.travelplanner.app.data
 
 import app.cash.sqldelight.coroutines.asFlow
 import app.cash.sqldelight.coroutines.mapToList
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.Json
+import org.travelplanner.app.AppBackground
 import org.travelplanner.app.PendingInvitationEntity
 import org.travelplanner.app.TripJoinRequestEntity
 import org.travelplanner.app.TripParticipantEntity
-import org.travelplanner.app.core.BackendFeatureFlags
 import org.travelplanner.app.core.ChangeRoleRequest
 import org.travelplanner.app.core.InvitationResponse
 import org.travelplanner.app.core.InviteParticipantRequest
@@ -39,10 +36,10 @@ class ParticipantRepository(
         pendingInvitationQueries
             .getAllPendingInvitations()
             .asFlow()
-            .mapToList(Dispatchers.IO)
+            .mapToList(AppBackground)
 
     private fun getParticipantsEntityFlow(tripId: String): Flow<List<TripParticipantEntity>> =
-        queries.getParticipantsForTrip(tripId).asFlow().mapToList(Dispatchers.IO)
+        queries.getParticipantsForTrip(tripId).asFlow().mapToList(AppBackground)
 
     fun getParticipantsFlow(tripId: String): Flow<List<Participant>> =
         getParticipantsEntityFlow(tripId).map { list -> list.map { it.toDomain() } }
@@ -51,7 +48,7 @@ class ParticipantRepository(
         joinRequestQueries
             .getPendingRequestsForTrip(tripId)
             .asFlow()
-            .mapToList(Dispatchers.IO)
+            .mapToList(AppBackground)
             .map { rows -> rows.map { it.toPendingUser() } }
 
     suspend fun syncParticipants(tripId: String) {
@@ -178,8 +175,6 @@ class ParticipantRepository(
         val remote =
             try {
                 api.getPendingInvitations()
-            } catch (e: CancellationException) {
-                throw e
             } catch (e: Exception) {
                 println("Pending invitations sync failed: ${e.message}")
                 return

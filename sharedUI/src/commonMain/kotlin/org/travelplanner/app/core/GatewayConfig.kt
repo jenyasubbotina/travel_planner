@@ -2,9 +2,8 @@ package org.travelplanner.app.core
 
 import io.github.xxfast.kstore.KStore
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.MutableStateFlow
+import org.travelplanner.app.AppBackground
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
@@ -31,7 +30,7 @@ class GatewayConfigManager(
     val baseUrl: String get() = _config.value.baseUrl
 
     init {
-        CoroutineScope(Dispatchers.IO).launch {
+        CoroutineScope(AppBackground).launch {
             val saved = store.get()
             if (saved != null) {
                 _config.value = saved

@@ -1,8 +1,7 @@
 package org.travelplanner.app.features.tripList
 
 import cafe.adriel.voyager.core.model.screenModelScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.IO
+import org.travelplanner.app.AppBackground
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.travelplanner.app.core.BaseScreenModel
@@ -143,10 +142,10 @@ class CreateTripScreenModel(
                     destination = s.destination.ifBlank { null },
                 )
 
-            val newTripId =
-                withContext(Dispatchers.IO) {
-                    repository.createTripLocal(request)
-                }
+                val newTripId =
+                    withContext(AppBackground) {
+                        repository.createTripLocal(request)
+                    }
 
             if (s.photoBytes != null) {
                 try {

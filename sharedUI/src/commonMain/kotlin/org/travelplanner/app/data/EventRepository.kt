@@ -4,8 +4,7 @@ import app.cash.sqldelight.coroutines.asFlow
 import app.cash.sqldelight.coroutines.mapToList
 import app.cash.sqldelight.coroutines.mapToOneOrNull
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.IO
+import org.travelplanner.app.AppBackground
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.Json
@@ -56,10 +55,10 @@ class EventRepository(
     private val queries = db.eventsQueries
 
     private fun getEventsEntityFlow(tripId: String): Flow<List<TripEventEntity>> =
-        queries.getEventsForTrip(tripId).asFlow().mapToList(Dispatchers.IO)
+        queries.getEventsForTrip(tripId).asFlow().mapToList(AppBackground)
 
     private fun getEventEntityFlow(eventId: String): Flow<TripEventEntity?> =
-        queries.getEventById(eventId).asFlow().mapToOneOrNull(Dispatchers.IO)
+        queries.getEventById(eventId).asFlow().mapToOneOrNull(AppBackground)
 
     fun getEventsFlow(tripId: String): Flow<List<Event>> = getEventsEntityFlow(tripId).map { list -> list.map { it.toDomain(json) } }
 

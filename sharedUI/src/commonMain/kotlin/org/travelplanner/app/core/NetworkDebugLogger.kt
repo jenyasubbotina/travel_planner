@@ -3,12 +3,7 @@ package org.travelplanner.app.core
 import kotlin.time.TimeSource
 
 object NetworkDebugLogger {
-    private val isEnabled: Boolean by lazy {
-        runCatching {
-            val clazz = Class.forName("org.travelplanner.app.androidApp.BuildConfig")
-            clazz.getField("DEBUG").getBoolean(null)
-        }.getOrDefault(false)
-    }
+    private val isEnabled: Boolean by lazy { isNetworkDebugLoggingEnabled() }
 
     fun isActive(): Boolean = isEnabled
 

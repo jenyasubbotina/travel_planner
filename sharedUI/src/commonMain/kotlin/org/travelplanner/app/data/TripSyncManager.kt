@@ -3,8 +3,7 @@ package org.travelplanner.app.data
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.IO
+import org.travelplanner.app.AppBackground
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
@@ -82,7 +81,7 @@ class GlobalSyncManager(
     private val _retryCountdown = MutableStateFlow<Int?>(null)
     val retryCountdown = _retryCountdown.asStateFlow()
 
-    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val scope = CoroutineScope(AppBackground + SupervisorJob())
 
     private var syncJob: Job? = null
 

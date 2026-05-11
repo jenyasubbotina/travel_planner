@@ -4,8 +4,7 @@ import app.cash.sqldelight.coroutines.asFlow
 import app.cash.sqldelight.coroutines.mapToList
 import app.cash.sqldelight.coroutines.mapToOne
 import app.cash.sqldelight.coroutines.mapToOneOrNull
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.IO
+import org.travelplanner.app.AppBackground
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.Json
@@ -49,13 +48,13 @@ class ExpenseRepository(
     val CATEGORY_PAYMENT = "PAYMENT"
 
     private fun getExpensesEntityFlow(tripId: String): Flow<List<TripExpenseEntity>> =
-        queries.getExpensesForTrip(tripId).asFlow().mapToList(Dispatchers.IO)
+        queries.getExpensesForTrip(tripId).asFlow().mapToList(AppBackground)
 
     private fun getSplitsEntityFlow(tripId: String): Flow<List<ExpenseSplitEntity>> =
-        queries.getSplitsForTrip(tripId).asFlow().mapToList(Dispatchers.IO)
+        queries.getSplitsForTrip(tripId).asFlow().mapToList(AppBackground)
 
     private fun getExpenseByIdEntity(id: String): Flow<TripExpenseEntity?> =
-        queries.getExpenseById(id).asFlow().mapToOneOrNull(Dispatchers.IO)
+        queries.getExpenseById(id).asFlow().mapToOneOrNull(AppBackground)
 
     fun getExpensesFlow(tripId: String): Flow<List<Expense>> = getExpensesEntityFlow(tripId).map { list -> list.map { it.toDomain() } }
 
@@ -74,7 +73,7 @@ class ExpenseRepository(
         queries
             .countPendingApprovalsForCreator(tripId, creatorUserId)
             .asFlow()
-            .mapToOne(Dispatchers.IO)
+            .mapToOne(AppBackground)
 
     fun observePendingProposalsCount(
         tripId: String,
@@ -610,10 +609,10 @@ class ExpenseRepository(
     }
 
     private fun getExpenseSplitsEntityFlow(expenseId: String): Flow<List<ExpenseSplitEntity>> =
-        queries.getSplitsForExpense(expenseId).asFlow().mapToList(Dispatchers.IO)
+        queries.getSplitsForExpense(expenseId).asFlow().mapToList(AppBackground)
 
     fun getExpenseHistory(expenseId: String): Flow<List<ExpenseHistoryEntity>> =
-        queries.getHistoryForExpense(expenseId).asFlow().mapToList(Dispatchers.IO)
+        queries.getHistoryForExpense(expenseId).asFlow().mapToList(AppBackground)
 
     private fun isoDateToday(): String {
         val now = Clock.System.now().toEpochMilliseconds()

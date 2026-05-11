@@ -63,8 +63,8 @@ import cafe.adriel.voyager.navigator.currentOrThrow
 import cafe.adriel.voyager.navigator.tab.Tab
 import cafe.adriel.voyager.navigator.tab.TabOptions
 import kotlinx.coroutines.launch
-import org.koin.core.context.GlobalContext
 import org.koin.core.parameter.parametersOf
+import org.koin.mp.KoinPlatformTools
 import org.travelplanner.app.DSEmptyStateCard
 import org.travelplanner.app.core.TripUtils.isoToEpochMillis
 import org.travelplanner.app.core.formatRussianDateTime
@@ -96,7 +96,7 @@ data class ExpensesTab(
         val parentNavigator = LocalNavigator.currentOrThrow.parent!!
         val listScreenModel =
             parentNavigator.rememberNavigatorScreenModel<ExpensesScreenModel>(tag = tripId) {
-                GlobalContext.get().get<ExpensesScreenModel> { parametersOf(tripId) }
+                KoinPlatformTools.defaultContext().get().get<ExpensesScreenModel> { parametersOf(tripId) }
             }
 
         val listState by listScreenModel.state.collectAsState()
