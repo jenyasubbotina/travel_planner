@@ -43,6 +43,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import cafe.adriel.voyager.core.screen.Screen
 import cafe.adriel.voyager.koin.getScreenModel
 import cafe.adriel.voyager.navigator.LocalNavigator
@@ -148,6 +149,8 @@ class CreateTripScreen : Screen {
                     onValueChange = { screenModel.handleIntent(CreateTripIntent.TitleChanged(it)) },
                     placeholder = "Например: Токио 2026",
                     label = "Название поездки",
+                    isError = state.showErrors && state.titleError != null,
+                    errorMessage = state.titleError,
                     modifier = Modifier.fillMaxWidth(),
                 )
 
@@ -165,6 +168,7 @@ class CreateTripScreen : Screen {
                     modifier = Modifier.fillMaxWidth(),
                 )
 
+                val datesHasError = state.showErrors && state.datesError != null
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -176,6 +180,7 @@ class CreateTripScreen : Screen {
                         label = "Начало",
                         enabled = false,
                         readOnly = true,
+                        isError = datesHasError,
                         trailingIcon = {
                             IconButton(onClick = { showDatePicker = true }) {
                                 Icon(Icons.Default.CalendarToday, null)
@@ -191,7 +196,15 @@ class CreateTripScreen : Screen {
                         label = "Конец",
                         enabled = false,
                         readOnly = true,
-                        modifier = Modifier.weight(1f),
+                        isError = datesHasError,
+                        modifier = Modifier.weight(1f).clickable { showDatePicker = true },
+                    )
+                }
+                if (datesHasError) {
+                    Text(
+                        text = state.datesError ?: "",
+                        color = Color(0xFFD32F2F),
+                        fontSize = 12.sp,
                     )
                 }
 
@@ -210,6 +223,8 @@ class CreateTripScreen : Screen {
                         },
                         placeholder = "JPY",
                         label = "Валюта",
+                        isError = state.showErrors && state.currencyError != null,
+                        errorMessage = state.currencyError,
                         modifier = Modifier.weight(1f),
                     )
                     DSTextInput(
@@ -223,6 +238,8 @@ class CreateTripScreen : Screen {
                         },
                         placeholder = "0",
                         label = "Бюджет",
+                        isError = state.showErrors && state.budgetError != null,
+                        errorMessage = state.budgetError,
                         modifier = Modifier.weight(1f),
                     )
                 }

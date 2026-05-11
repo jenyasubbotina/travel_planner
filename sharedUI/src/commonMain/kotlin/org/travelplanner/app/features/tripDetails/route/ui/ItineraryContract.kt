@@ -48,4 +48,8 @@ sealed interface ItineraryIntent : UiIntent {
     ) : ItineraryIntent
 }
 
-sealed interface ItineraryEffect : UiEffect
+sealed interface ItineraryEffect : UiEffect {
+    data class ShowError(
+        val message: String,
+    ) : ItineraryEffect
+}

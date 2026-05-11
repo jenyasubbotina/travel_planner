@@ -5,20 +5,20 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.travelplanner.app.core.ReactiveScreenModel
 import org.travelplanner.app.core.ReverseGeocoder
 import org.travelplanner.app.core.UserSession
+import org.travelplanner.app.core.Validation
+import org.travelplanner.app.core.VersionConflictException
 import org.travelplanner.app.core.formatHoursDuration
 import org.travelplanner.app.core.stripDurationSuffix
 import org.travelplanner.app.data.EventRepository
 import org.travelplanner.app.data.ParticipantRepository
 import org.travelplanner.app.data.TripRepository
 import org.travelplanner.app.data.mimeTypeForFileName
-import org.travelplanner.app.core.VersionConflictException
 import org.travelplanner.app.features.tripDetails.route.detailed.data.toDto
 import org.travelplanner.app.features.tripDetails.route.ui.EventEditData
 import kotlin.time.Clock
@@ -198,6 +198,13 @@ class EventDetailsScreenModel(
     private fun saveChanges() {
         val entity = state.value.event ?: return
         val edit = state.value.editData
+
+        if (!isEditDataValid(edit)) {
+            _localUiState.update { it.copy(editData = it.editData.copy(showErrors = true)) }
+            sendEffect(EventEffect.ShowError("Заполните обязательные поля"))
+            return
+        }
+
         screenModelScope.launch {
             _localUiState.update { it.copy(isSyncing = true) }
             try {
@@ -230,13 +237,24 @@ class EventDetailsScreenModel(
         }
     }
 
+    private fun isEditDataValid(data: EventEditData): Boolean {
+        if (!Validation.isValidTitle(data.title)) return false
+        if (!Validation.isValidTimeHhMm(data.time)) return false
+        if (data.cost.isNotBlank() && !Validation.isNonNegativeAmount(data.cost)) return false
+        return true
+    }
+
     private fun addComment(text: String) {
-        if (text.isBlank()) return
+        if (text.isBlank()) {
+            sendEffect(EventEffect.ShowError("Введите текст комментария"))
+            return
+        }
         screenModelScope.launch {
             try {
                 eventRepository.addPointComment(tripId, eventId, text)
             } catch (t: Throwable) {
                 t.printStackTrace()
+                sendEffect(EventEffect.ShowError("Не удалось добавить комментарий"))
             }
         }
     }
@@ -245,12 +263,20 @@ class EventDetailsScreenModel(
         title: String,
         url: String,
     ) {
-        if (title.isBlank() || url.isBlank()) return
+        if (title.isBlank() || url.isBlank()) {
+            sendEffect(EventEffect.ShowError("Введите название и ссылку"))
+            return
+        }
+        if (!Validation.isValidUrl(url)) {
+            sendEffect(EventEffect.ShowError("Введите корректную ссылку (http:// или https://)"))
+            return
+        }
         screenModelScope.launch {
             try {
                 eventRepository.addPointLink(tripId, eventId, title, url)
             } catch (t: Throwable) {
                 t.printStackTrace()
+                sendEffect(EventEffect.ShowError("Не удалось добавить ссылку"))
             }
         }
     }

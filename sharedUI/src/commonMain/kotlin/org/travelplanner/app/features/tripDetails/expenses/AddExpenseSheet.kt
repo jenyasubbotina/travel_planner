@@ -75,6 +75,7 @@ fun ExpenseFormSheet(
     screenModel: ExpenseFormScreenModel,
     onDismiss: () -> Unit,
     onSuccess: (message: String?) -> Unit,
+    onError: (message: String) -> Unit = {},
 ) {
     val state by screenModel.state.collectAsState()
     val scrollState = rememberScrollState()
@@ -87,6 +88,7 @@ fun ExpenseFormSheet(
                     onSuccess("Предложение отправлено создателю на подтверждение")
                 is ExpenseFormEffect.SaveBlockedAnotherPending ->
                     onSuccess("Другой участник уже предложил изменения. Дождитесь решения создателя.")
+                is ExpenseFormEffect.ShowError -> onError(effect.message)
             }
         }
     }
@@ -150,17 +152,21 @@ fun ExpenseFormSheet(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             InputLabel("Сумма")
+            val amountHasError = state.showErrors && state.amountError != null
             OutlinedTextField(
                 value = state.amount,
                 onValueChange = { screenModel.handleIntent(ExpenseFormIntent.AmountChanged(it)) },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
+                isError = amountHasError,
                 colors =
                     TextFieldDefaults.colors(
                         focusedContainerColor = Color.White,
                         unfocusedContainerColor = Color.White,
                         focusedIndicatorColor = Color(0xFFE5E7EB),
                         unfocusedIndicatorColor = Color(0xFFE5E7EB),
+                        errorIndicatorColor = Color(0xFFD32F2F),
+                        errorContainerColor = Color.White,
                     ),
                 textStyle = LocalTextStyle.current.copy(fontSize = 24.sp, color = Color.Black),
                 trailingIcon = {
@@ -179,6 +185,13 @@ fun ExpenseFormSheet(
                 },
                 singleLine = true,
             )
+            if (amountHasError) {
+                Text(
+                    text = state.amountError ?: "",
+                    color = Color(0xFFD32F2F),
+                    fontSize = 12.sp,
+                )
+            }
 
             InputLabel("Категория")
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -230,6 +243,8 @@ fun ExpenseFormSheet(
                 onValueChange = { screenModel.handleIntent(ExpenseFormIntent.DescriptionChanged(it)) },
                 modifier = Modifier.fillMaxWidth(),
                 placeholder = "На что потрачено?",
+                isError = state.showErrors && state.descriptionError != null,
+                errorMessage = state.descriptionError,
             )
 
             DSTextInput(
@@ -249,6 +264,13 @@ fun ExpenseFormSheet(
                 selectedId = state.payerId,
                 onSelect = { screenModel.handleIntent(ExpenseFormIntent.PayerChanged(it)) },
             )
+            if (state.showErrors && state.payerError != null) {
+                Text(
+                    text = state.payerError ?: "",
+                    color = Color(0xFFD32F2F),
+                    fontSize = 12.sp,
+                )
+            }
 
             InputLabel("Как разделить")
             Row(
@@ -314,6 +336,14 @@ fun ExpenseFormSheet(
                                     ),
                                 )
                             },
+                        )
+                    }
+                    val participantsMessage = state.participantsError ?: state.splitError
+                    if (participantsMessage != null && (state.showErrors || state.splitMethod == SplitMethod.MANUAL)) {
+                        Text(
+                            text = participantsMessage,
+                            color = Color(0xFFD32F2F),
+                            fontSize = 12.sp,
                         )
                     }
                 }
@@ -389,17 +419,8 @@ fun ExpenseFormSheet(
             DSButton(
                 text = "Добавить",
                 onClick = { screenModel.handleIntent(ExpenseFormIntent.Save) },
-                enabled = state.isSplitValid && state.amount.isNotEmpty(),
                 modifier = Modifier.weight(1f),
             )
-
-            if (state.splitMethod == SplitMethod.MANUAL && state.splitError != null) {
-                Text(
-                    text = state.splitError!!,
-                    color = Color.Red,
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
         }
     }
 }

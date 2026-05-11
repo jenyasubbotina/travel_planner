@@ -9,10 +9,15 @@ data class CreateTripState(
     val destination: String = "",
     val startDate: Long? = null,
     val endDate: Long? = null,
-    val currency: String = "¥",
+    val currency: String = "JPY",
     val budget: String = "",
     val description: String = "",
     val photoBytes: ByteArray? = null,
+    val showErrors: Boolean = false,
+    val titleError: String? = null,
+    val datesError: String? = null,
+    val currencyError: String? = null,
+    val budgetError: String? = null,
 ) : UiState
 
 sealed interface CreateTripIntent : UiIntent {
@@ -46,8 +51,6 @@ sealed interface CreateTripIntent : UiIntent {
     ) : CreateTripIntent
 
     data object SaveClicked : CreateTripIntent
-
-    data object DismissMessage : CreateTripIntent
 }
 
 sealed interface CreateTripEffect : UiEffect {

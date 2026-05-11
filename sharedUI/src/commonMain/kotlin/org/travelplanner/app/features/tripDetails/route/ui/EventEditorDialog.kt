@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
@@ -31,7 +32,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import org.travelplanner.app.core.Validation
 import org.travelplanner.app.domain.Participant
 import org.travelplanner.app.features.tripDetails.route.detailed.ui.EventIntent
 import org.travelplanner.app.theme.DSButton
@@ -65,6 +66,7 @@ data class EventEditData(
     val dayIndex: Int = 0,
     val eventId: String? = null,
     val participantIds: List<String> = emptyList(),
+    val showErrors: Boolean = false,
 )
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -116,6 +118,31 @@ fun EventEditorDialog(
                         }
                     }
 
+                    val timeError =
+                        if (data.showErrors && !Validation.isValidTimeHhMm(data.time)) {
+                            "Время в формате ЧЧ:ММ"
+                        } else {
+                            null
+                        }
+                    val costError =
+                        if (data.showErrors && data.cost.isNotBlank() &&
+                            !Validation.isNonNegativeAmount(data.cost)
+                        ) {
+                            "Должно быть числом ≥ 0"
+                        } else {
+                            null
+                        }
+                    val titleError =
+                        if (data.showErrors && !Validation.isValidTitle(data.title)) {
+                            if (data.title.isBlank()) {
+                                "Введите название"
+                            } else {
+                                "Слишком длинное (макс. ${Validation.TITLE_MAX})"
+                            }
+                        } else {
+                            null
+                        }
+
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         DSTextInput(
                             value = data.time,
@@ -130,6 +157,8 @@ fun EventEditorDialog(
                             },
                             placeholder = "10:00",
                             label = "Время",
+                            isError = timeError != null,
+                            errorMessage = timeError,
                             modifier = Modifier.weight(1f),
                         )
                         DSTextInput(
@@ -145,6 +174,8 @@ fun EventEditorDialog(
                             },
                             placeholder = "0",
                             label = "Бюджет ($currency)",
+                            isError = costError != null,
+                            errorMessage = costError,
                             modifier = Modifier.weight(1f),
                         )
                     }
@@ -154,6 +185,8 @@ fun EventEditorDialog(
                         onValueChange = { v -> onIntent(EventIntent.UpdateEditorField { copy(title = v) }) },
                         placeholder = "Название",
                         label = "Название",
+                        isError = titleError != null,
+                        errorMessage = titleError,
                         modifier = Modifier.fillMaxWidth(),
                     )
 
@@ -195,13 +228,17 @@ fun EventEditorDialog(
                         value = data.duration,
                         onValueChange = { v ->
                             val cleaned =
-                                v.filter { it.isDigit() || it == '.' || it == ',' }
+                                v
+                                    .filter { it.isDigit() || it == '.' || it == ',' }
                                     .replace(',', '.')
                                     .let { s ->
                                         val firstDot = s.indexOf('.')
-                                        if (firstDot < 0) s
-                                        else s.substring(0, firstDot + 1) +
-                                            s.substring(firstDot + 1).replace(".", "")
+                                        if (firstDot < 0) {
+                                            s
+                                        } else {
+                                            s.substring(0, firstDot + 1) +
+                                                s.substring(firstDot + 1).replace(".", "")
+                                        }
                                     }
                             onIntent(EventIntent.UpdateEditorField { copy(duration = cleaned) })
                         },

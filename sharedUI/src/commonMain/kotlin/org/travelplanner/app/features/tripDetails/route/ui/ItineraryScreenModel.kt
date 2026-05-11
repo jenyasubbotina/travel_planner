@@ -11,6 +11,7 @@ import kotlinx.coroutines.launch
 import org.travelplanner.app.core.ReactiveScreenModel
 import org.travelplanner.app.core.ReverseGeocoder
 import org.travelplanner.app.core.TripUtils
+import org.travelplanner.app.core.Validation
 import org.travelplanner.app.core.formatHoursDuration
 import org.travelplanner.app.core.stripDurationSuffix
 import org.travelplanner.app.core.toEpochMillis
@@ -204,8 +205,15 @@ class ItineraryScreenModel(
         val data = state.value.editorData
         val originalEvent = state.value.events.find { it.id == data.eventId }
 
+        if (!isEditorDataValid(data)) {
+            _localUiState.update { it.copy(editorData = it.editorData.copy(showErrors = true)) }
+            sendEffect(ItineraryEffect.ShowError("Заполните обязательные поля"))
+            return
+        }
+
         screenModelScope.launch {
             if (data.eventId == null) {
+                val formattedDuration = formatHoursDuration(data.duration)
                 val dto =
                     EventDto(
                         id = "",
@@ -215,7 +223,7 @@ class ItineraryScreenModel(
                         title = data.title,
                         subtitle = data.subtitle,
                         description = data.description,
-                        duration = formatHoursDuration(data.duration).ifBlank { "1 ч" },
+                        duration = formattedDuration.ifBlank { null },
                         cost = data.cost.toDoubleOrNull() ?: 0.0,
                         actualCost = 0.0,
                         status = data.status,
@@ -257,5 +265,12 @@ class ItineraryScreenModel(
 
             handleIntent(ItineraryIntent.EditorAction(EventIntent.CloseEditor))
         }
+    }
+
+    private fun isEditorDataValid(data: EventEditData): Boolean {
+        if (!Validation.isValidTitle(data.title)) return false
+        if (!Validation.isValidTimeHhMm(data.time)) return false
+        if (data.cost.isNotBlank() && !Validation.isNonNegativeAmount(data.cost)) return false
+        return true
     }
 }

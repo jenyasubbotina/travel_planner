@@ -9,6 +9,7 @@ import org.travelplanner.app.core.BaseScreenModel
 import org.travelplanner.app.core.PendingUpdateStoredException
 import org.travelplanner.app.core.TripUtils.formatDate
 import org.travelplanner.app.core.UserSession
+import org.travelplanner.app.core.Validation
 import org.travelplanner.app.core.toEpochMillis
 import org.travelplanner.app.core.toMoneyDouble
 import org.travelplanner.app.data.ExpenseRepository
@@ -40,11 +41,21 @@ class ExpenseFormScreenModel(
             }
 
             is ExpenseFormIntent.DescriptionChanged -> {
-                updateState { copy(description = intent.description) }
+                updateState {
+                    copy(
+                        description = intent.description,
+                        descriptionError = if (showErrors) computeDescriptionError(intent.description) else descriptionError,
+                    )
+                }
             }
 
             is ExpenseFormIntent.PayerChanged -> {
-                updateState { copy(payerId = intent.id) }
+                updateState {
+                    copy(
+                        payerId = intent.id,
+                        payerError = if (showErrors) computePayerError(intent.id) else payerError,
+                    )
+                }
             }
 
             is ExpenseFormIntent.DateChanged -> {
@@ -166,10 +177,27 @@ class ExpenseFormScreenModel(
 
     private fun onAmountChange(valStr: String) {
         if (valStr.all { it.isDigit() || it == '.' }) {
-            updateState { copy(amount = valStr) }
+            updateState {
+                copy(
+                    amount = valStr,
+                    amountError = if (showErrors) computeAmountError(valStr) else amountError,
+                )
+            }
             recalculate()
         }
     }
+
+    private fun computeAmountError(value: String): String? =
+        if (!Validation.isPositiveAmount(value)) "Введите сумму больше 0" else null
+
+    private fun computeDescriptionError(value: String): String? =
+        if (value.isBlank()) "Введите описание" else null
+
+    private fun computePayerError(id: Long?): String? =
+        if (id == null) "Выберите, кто оплатил" else null
+
+    private fun computeParticipantsError(participants: List<ParticipantSplitState>): String? =
+        if (participants.none { it.isSelected }) "Выберите хотя бы одного участника" else null
 
     private fun onManualAmountChange(
         id: Long,
@@ -201,15 +229,36 @@ class ExpenseFormScreenModel(
     private fun recalculate() {
         val s = currentState
         val total = s.amount.toDoubleOrNull() ?: 0.0
+        val activeCount = s.participants.count { it.isSelected }
+
+        if (activeCount == 0) {
+            val cleared =
+                s.participants.map { it.copy(calculatedAmount = 0.0) }
+            updateState {
+                copy(
+                    participants = cleared,
+                    isSplitValid = false,
+                    splitError = "Выберите участников",
+                    participantsError = if (showErrors) "Выберите хотя бы одного участника" else participantsError,
+                )
+            }
+            return
+        }
 
         if (s.splitMethod == SplitMethod.EQUAL) {
-            val activeCount = s.participants.count { it.isSelected }
-            val share = if (activeCount > 0) total / activeCount else 0.0
+            val share = total / activeCount
             val updated =
                 s.participants.map {
                     it.copy(calculatedAmount = if (it.isSelected) share else 0.0)
                 }
-            updateState { copy(participants = updated, isSplitValid = true, splitError = null) }
+            updateState {
+                copy(
+                    participants = updated,
+                    isSplitValid = true,
+                    splitError = null,
+                    participantsError = null,
+                )
+            }
         } else {
             val updated =
                 s.participants.map {
@@ -221,8 +270,8 @@ class ExpenseFormScreenModel(
             val isValid = abs(diff) < 0.01
             val errorMsg =
                 when {
-                    diff > 0 -> "Missing: ${diff.toInt()}"
-                    diff < 0 -> "Over by: ${abs(diff).toInt()}"
+                    diff > 0 -> "Не хватает: ${diff.toInt()}"
+                    diff < 0 -> "Превышение на: ${abs(diff).toInt()}"
                     else -> null
                 }
             updateState {
@@ -230,6 +279,7 @@ class ExpenseFormScreenModel(
                     participants = updated,
                     isSplitValid = isValid,
                     splitError = errorMsg,
+                    participantsError = null,
                 )
             }
         }
@@ -237,10 +287,33 @@ class ExpenseFormScreenModel(
 
     private fun save() {
         val s = currentState
-        val total = s.amount.toDoubleOrNull() ?: 0.0
-        val selectedPayerId = s.payerId ?: return
 
-        if (total <= 0.0 || s.description.isBlank() || !s.isSplitValid) return
+        val amountError = computeAmountError(s.amount)
+        val descriptionError = computeDescriptionError(s.description)
+        val payerError = computePayerError(s.payerId)
+        val participantsError = computeParticipantsError(s.participants)
+
+        val hasFieldErrors = amountError != null ||
+            descriptionError != null ||
+            payerError != null ||
+            participantsError != null
+
+        if (hasFieldErrors || !s.isSplitValid) {
+            updateState {
+                copy(
+                    showErrors = true,
+                    amountError = amountError,
+                    descriptionError = descriptionError,
+                    payerError = payerError,
+                    participantsError = participantsError,
+                )
+            }
+            sendEffect(ExpenseFormEffect.ShowError("Заполните обязательные поля"))
+            return
+        }
+
+        val total = s.amount.toDoubleOrNull() ?: 0.0
+        val selectedPayerId = s.payerId!!
 
         val splitsMap =
             s.participants

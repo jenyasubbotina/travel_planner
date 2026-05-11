@@ -19,6 +19,11 @@ data class AddExpenseState(
     val isSplitValid: Boolean = true,
     val splitError: String? = null,
     val currency: String = "¥",
+    val showErrors: Boolean = false,
+    val amountError: String? = null,
+    val descriptionError: String? = null,
+    val payerError: String? = null,
+    val participantsError: String? = null,
 ) : UiState
 
 data class ParticipantSplitState(
@@ -77,6 +82,12 @@ sealed interface ExpenseFormIntent : UiIntent {
 
 sealed interface ExpenseFormEffect : UiEffect {
     data object SaveSuccess : ExpenseFormEffect
+
     data object SaveQueuedForApproval : ExpenseFormEffect
+
     data object SaveBlockedAnotherPending : ExpenseFormEffect
+
+    data class ShowError(
+        val message: String,
+    ) : ExpenseFormEffect
 }

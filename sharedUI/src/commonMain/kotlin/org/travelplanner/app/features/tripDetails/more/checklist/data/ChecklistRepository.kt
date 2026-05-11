@@ -8,7 +8,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.Json
 import org.travelplanner.app.TripChecklistEntity
-import org.travelplanner.app.core.BackendFeatureFlags
 import org.travelplanner.app.core.ChecklistItemResponse
 import org.travelplanner.app.core.TripApiService
 import org.travelplanner.app.core.UserSession
@@ -38,7 +37,6 @@ class ChecklistRepository(
         getChecklistEntityFlow(tripId).map { list -> list.map { it.toDomain(json) } }
 
     suspend fun syncChecklist(tripId: String) {
-        if (!BackendFeatureFlags.CHECKLIST_ENABLED) return
         try {
             val remoteList = api.getChecklist(tripId)
             db.transaction {
@@ -75,7 +73,6 @@ class ChecklistRepository(
         title: String,
         isGroup: Boolean,
     ) {
-        if (!BackendFeatureFlags.CHECKLIST_ENABLED) return
         val itemId = outbox.newMutationId()
         val mutationId = outbox.newMutationId()
         val ownerUserId =
@@ -121,7 +118,6 @@ class ChecklistRepository(
         tripId: String,
         itemId: String,
     ) {
-        if (!BackendFeatureFlags.CHECKLIST_ENABLED) return
         val existing =
             queries.getChecklistForTrip(tripId).executeAsList().firstOrNull { it.id == itemId }
                 ?: return
@@ -146,7 +142,6 @@ class ChecklistRepository(
         tripId: String,
         itemId: String,
     ) {
-        if (!BackendFeatureFlags.CHECKLIST_ENABLED) return
         val existing =
             queries.getChecklistForTrip(tripId).executeAsList().firstOrNull { it.id == itemId }
                 ?: return

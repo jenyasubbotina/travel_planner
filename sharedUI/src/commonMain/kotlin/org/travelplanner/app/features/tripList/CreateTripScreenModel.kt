@@ -8,6 +8,7 @@ import kotlinx.coroutines.withContext
 import org.travelplanner.app.core.BaseScreenModel
 import org.travelplanner.app.core.UserSession
 import org.travelplanner.app.core.V2CreateTripRequest
+import org.travelplanner.app.core.Validation
 import org.travelplanner.app.core.toIsoDate
 import org.travelplanner.app.data.ParticipantRepository
 import org.travelplanner.app.data.TripRepository
@@ -21,7 +22,12 @@ class CreateTripScreenModel(
     override fun handleIntent(intent: CreateTripIntent) {
         when (intent) {
             is CreateTripIntent.TitleChanged -> {
-                updateState { copy(title = intent.value) }
+                updateState {
+                    copy(
+                        title = intent.value,
+                        titleError = if (showErrors) computeTitleError(intent.value) else titleError,
+                    )
+                }
             }
 
             is CreateTripIntent.DestinationChanged -> {
@@ -29,7 +35,12 @@ class CreateTripScreenModel(
             }
 
             is CreateTripIntent.BudgetChanged -> {
-                updateState { copy(budget = intent.value) }
+                updateState {
+                    copy(
+                        budget = intent.value,
+                        budgetError = if (showErrors) computeBudgetError(intent.value) else budgetError,
+                    )
+                }
             }
 
             is CreateTripIntent.DescriptionChanged -> {
@@ -37,7 +48,12 @@ class CreateTripScreenModel(
             }
 
             is CreateTripIntent.CurrencyChanged -> {
-                updateState { copy(currency = intent.value) }
+                updateState {
+                    copy(
+                        currency = intent.value,
+                        currencyError = if (showErrors) computeCurrencyError(intent.value) else currencyError,
+                    )
+                }
             }
 
             is CreateTripIntent.DatesChanged -> {
@@ -45,6 +61,15 @@ class CreateTripScreenModel(
                     copy(
                         startDate = intent.start,
                         endDate = intent.end,
+                        datesError =
+                            if (showErrors) {
+                                computeDatesError(
+                                    intent.start,
+                                    intent.end,
+                                )
+                            } else {
+                                datesError
+                            },
                     )
                 }
             }
@@ -56,52 +81,95 @@ class CreateTripScreenModel(
             is CreateTripIntent.SaveClicked -> {
                 save()
             }
-
-            is CreateTripIntent.DismissMessage -> {}
         }
     }
+
+    private fun computeTitleError(value: String): String? =
+        when {
+            value.isBlank() -> "Введите название поездки"
+            value.length > Validation.TITLE_MAX -> "Слишком длинное название (макс. ${Validation.TITLE_MAX})"
+            else -> null
+        }
+
+    private fun computeDatesError(
+        start: Long?,
+        end: Long?,
+    ): String? =
+        when {
+            start == null || end == null -> "Укажите даты поездки"
+            end < start -> "Дата окончания раньше начала"
+            else -> null
+        }
+
+    private fun computeCurrencyError(value: String): String? = if (!Validation.isValidCurrency(value)) "Укажите валюту" else null
+
+    private fun computeBudgetError(value: String): String? =
+        when {
+            value.isBlank() -> null
+            !Validation.isNonNegativeAmount(value) -> "Бюджет должен быть числом ≥ 0"
+            else -> null
+        }
 
     private fun save() {
         val s = currentState
         val user = userSession.currentUser.value ?: return
 
-        if (s.title.isNotBlank() && s.startDate != null && s.endDate != null) {
-            screenModelScope.launch {
-                val budgetForServer =
-                    s.budget
-                        .takeIf { it.isNotBlank() }
-                        ?.toDoubleOrNull()
-                        ?.toString()
-                val request =
-                    V2CreateTripRequest(
-                        title = s.title,
-                        description = s.description.ifBlank { null },
-                        startDate = s.startDate?.toIsoDate(),
-                        endDate = s.endDate?.toIsoDate(),
-                        baseCurrency = s.currency,
-                        totalBudget = budgetForServer,
-                        destination = s.destination.ifBlank { null },
-                    )
+        val titleError = computeTitleError(s.title)
+        val datesError = computeDatesError(s.startDate, s.endDate)
+        val currencyError = computeCurrencyError(s.currency)
+        val budgetError = computeBudgetError(s.budget)
 
-                val newTripId =
-                    withContext(Dispatchers.IO) {
-                        repository.createTripLocal(request)
-                    }
+        val hasErrors =
+            titleError != null || datesError != null || currencyError != null || budgetError != null
+        if (hasErrors) {
+            updateState {
+                copy(
+                    showErrors = true,
+                    titleError = titleError,
+                    datesError = datesError,
+                    currencyError = currencyError,
+                    budgetError = budgetError,
+                )
+            }
+            sendEffect(CreateTripEffect.ShowMessage("Заполните обязательные поля"))
+            return
+        }
 
-                if (s.photoBytes != null) {
-                    try {
-                        val s3Key = repository.uploadPhoto(newTripId, s.photoBytes)
-                        repository.setTripImageUrl(newTripId, s3Key)
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                        sendEffect(CreateTripEffect.ShowMessage("Поездка создана, но не удалось загрузить обложку"))
-                    }
+        screenModelScope.launch {
+            val budgetForServer =
+                s.budget
+                    .takeIf { it.isNotBlank() }
+                    ?.toDoubleOrNull()
+                    ?.toString()
+            val request =
+                V2CreateTripRequest(
+                    title = s.title,
+                    description = s.description.ifBlank { null },
+                    startDate = s.startDate?.toIsoDate(),
+                    endDate = s.endDate?.toIsoDate(),
+                    baseCurrency = s.currency,
+                    totalBudget = budgetForServer,
+                    destination = s.destination.ifBlank { null },
+                )
+
+            val newTripId =
+                withContext(Dispatchers.IO) {
+                    repository.createTripLocal(request)
                 }
 
-                sendEffect(CreateTripEffect.NavigateBack)
+            if (s.photoBytes != null) {
+                try {
+                    val s3Key = repository.uploadPhoto(newTripId, s.photoBytes)
+                    repository.setTripImageUrl(newTripId, s3Key)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    sendEffect(CreateTripEffect.ShowMessage("Поездка создана, но не удалось загрузить обложку"))
+                }
             }
+
+            sendEffect(CreateTripEffect.NavigateBack)
         }
     }
 }

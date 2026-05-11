@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import org.travelplanner.app.core.Validation
 import org.travelplanner.app.theme.DSButton
 import org.travelplanner.app.theme.DSTextInput
 
@@ -26,6 +27,14 @@ fun AcceptInvitationDialog(
     isOffline: Boolean = false,
 ) {
     var invitationId by remember { mutableStateOf("") }
+    var showError by remember { mutableStateOf(false) }
+
+    val invitationError = when {
+        !showError -> null
+        invitationId.isBlank() -> "Введите идентификатор приглашения"
+        !Validation.isValidUuid(invitationId) -> "Неверный формат идентификатора"
+        else -> null
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -42,6 +51,8 @@ fun AcceptInvitationDialog(
                     value = invitationId,
                     onValueChange = { invitationId = it.trim() },
                     placeholder = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+                    isError = invitationError != null,
+                    errorMessage = invitationError,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 if (isOffline) {
@@ -57,8 +68,14 @@ fun AcceptInvitationDialog(
         confirmButton = {
             DSButton(
                 text = "Добавить",
-                onClick = { if (invitationId.isNotBlank()) onSubmit(invitationId) },
-                enabled = invitationId.isNotBlank() && !isOffline,
+                onClick = {
+                    if (Validation.isValidUuid(invitationId)) {
+                        onSubmit(invitationId)
+                    } else {
+                        showError = true
+                    }
+                },
+                enabled = !isOffline,
             )
         },
         dismissButton = {

@@ -13,6 +13,7 @@ import org.travelplanner.app.TripEventEntity
 import org.travelplanner.app.core.AddPointCommentRequest
 import org.travelplanner.app.core.AddPointLinkRequest
 import org.travelplanner.app.core.BackendFeatureFlags
+import org.travelplanner.app.core.GlobalNotifier
 import org.travelplanner.app.core.ItineraryPointResponse
 import org.travelplanner.app.core.TripApiService
 import org.travelplanner.app.core.UserSession
@@ -497,7 +498,6 @@ class EventRepository(
         title: String,
         url: String,
     ) {
-        if (!BackendFeatureFlags.RICH_EVENT_DATA_ENABLED) return
         val response = api.addPointLink(tripId, eventId, AddPointLinkRequest(title, url)) ?: return
         appendLinkLocally(eventId, EventLinkDto(title = response.title, url = response.url))
     }
@@ -507,7 +507,6 @@ class EventRepository(
         eventId: String,
         linkId: String,
     ) {
-        if (!BackendFeatureFlags.RICH_EVENT_DATA_ENABLED) return
         api.deletePointLink(tripId, eventId, linkId)
     }
 
@@ -516,7 +515,6 @@ class EventRepository(
         eventId: String,
         text: String,
     ) {
-        if (!BackendFeatureFlags.RICH_EVENT_DATA_ENABLED) return
         val commentId = outbox.newMutationId()
         val mutationId = outbox.newMutationId()
         val user = userSession.currentUser.value
@@ -583,7 +581,6 @@ class EventRepository(
         fileName: String,
         mimeType: String,
     ) {
-        if (!BackendFeatureFlags.RICH_EVENT_DATA_ENABLED) return
         enqueueFileAttachment(tripId, eventId, fileBytes, fileName, mimeType)
     }
 

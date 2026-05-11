@@ -270,6 +270,7 @@ data class ExpensesTab(
                             isAddSheetVisible = false
                             if (message != null) showSnackbar(message)
                         },
+                        onError = { showSnackbar(it) },
                     )
                 }
             }

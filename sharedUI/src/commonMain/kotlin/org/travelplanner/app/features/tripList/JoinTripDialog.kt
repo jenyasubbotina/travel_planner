@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import org.travelplanner.app.core.Validation
 import org.travelplanner.app.theme.DSButton
 import org.travelplanner.app.theme.DSTextInput
 
@@ -26,6 +27,15 @@ fun JoinTripDialog(
     isOffline: Boolean = false,
 ) {
     var code by remember { mutableStateOf("") }
+    var showError by remember { mutableStateOf(false) }
+
+    val codeError = when {
+        !showError -> null
+        code.isBlank() -> "Введите код приглашения"
+        !Validation.isValidJoinCode(code) ->
+            "Код должен быть от ${Validation.JOIN_CODE_MIN} до ${Validation.JOIN_CODE_MAX} символов"
+        else -> null
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -41,6 +51,8 @@ fun JoinTripDialog(
                             it.uppercase().filter { char -> char.isLetterOrDigit() || char == '-' }
                     },
                     placeholder = "X92-A1",
+                    isError = codeError != null,
+                    errorMessage = codeError,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 if (isOffline) {
@@ -56,8 +68,14 @@ fun JoinTripDialog(
         confirmButton = {
             DSButton(
                 text = "Отправить заявку",
-                onClick = { if (code.isNotBlank()) onSubmit(code) },
-                enabled = !isOffline && code.isNotBlank(),
+                onClick = {
+                    if (Validation.isValidJoinCode(code)) {
+                        onSubmit(code)
+                    } else {
+                        showError = true
+                    }
+                },
+                enabled = !isOffline,
             )
         },
         dismissButton = {

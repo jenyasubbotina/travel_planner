@@ -52,6 +52,8 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
@@ -81,6 +83,7 @@ import coil3.compose.AsyncImage
 import org.koin.core.parameter.parametersOf
 import org.travelplanner.app.core.FilePicker
 import org.travelplanner.app.core.ImagePicker
+import org.travelplanner.app.core.Validation
 import org.travelplanner.app.core.rememberClipboardManager
 import org.travelplanner.app.core.rememberResolvedImageUrl
 import org.travelplanner.app.features.profile.ui.GradientAvatar
@@ -111,6 +114,7 @@ class EventDetailsScreen(
 
         val clipboardManager = rememberClipboardManager()
         var copiedAddress by remember { mutableStateOf(false) }
+        val snackbarHostState = remember { SnackbarHostState() }
 
         LaunchedEffect(Unit) {
             screenModel.effect.collect { effect ->
@@ -120,6 +124,7 @@ class EventDetailsScreen(
                     }
 
                     is EventEffect.ShowError -> {
+                        snackbarHostState.showSnackbar(effect.message)
                     }
                 }
             }
@@ -186,6 +191,7 @@ class EventDetailsScreen(
                     },
                 )
             },
+            snackbarHost = { SnackbarHost(snackbarHostState) },
             containerColor = Color(0xFFF3F4F6),
         ) { padding ->
             LazyColumn(
@@ -743,6 +749,16 @@ fun AddLinkDialog(
 ) {
     var title by remember { mutableStateOf("") }
     var url by remember { mutableStateOf("") }
+    var showErrors by remember { mutableStateOf(false) }
+
+    val titleInvalid = title.isBlank()
+    val urlInvalid = url.isBlank() || !Validation.isValidUrl(url)
+    val urlError = when {
+        !showErrors -> null
+        url.isBlank() -> "Введите ссылку"
+        !Validation.isValidUrl(url) -> "Неверный формат (http:// или https://)"
+        else -> null
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -754,6 +770,8 @@ fun AddLinkDialog(
                     onValueChange = { title = it },
                     placeholder = "Название",
                     label = "Название",
+                    isError = showErrors && titleInvalid,
+                    errorMessage = if (showErrors && titleInvalid) "Введите название" else null,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 DSTextInput(
@@ -761,6 +779,8 @@ fun AddLinkDialog(
                     onValueChange = { url = it },
                     placeholder = "https://...",
                     label = "URL ссылка",
+                    isError = urlError != null,
+                    errorMessage = urlError,
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
@@ -768,8 +788,13 @@ fun AddLinkDialog(
         confirmButton = {
             DSButton(
                 text = "Добавить",
-                onClick = { onAdd(title, url) },
-                enabled = title.isNotBlank() && url.isNotBlank(),
+                onClick = {
+                    if (titleInvalid || urlInvalid) {
+                        showErrors = true
+                    } else {
+                        onAdd(title, url)
+                    }
+                },
             )
         },
         dismissButton = {

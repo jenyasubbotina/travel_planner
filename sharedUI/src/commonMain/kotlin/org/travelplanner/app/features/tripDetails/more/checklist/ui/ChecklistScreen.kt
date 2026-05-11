@@ -53,6 +53,7 @@ import cafe.adriel.voyager.navigator.LocalNavigator
 import cafe.adriel.voyager.navigator.currentOrThrow
 import org.koin.core.parameter.parametersOf
 import org.travelplanner.app.DSEmptyStateCard
+import org.travelplanner.app.core.BackendFeatureFlags
 import org.travelplanner.app.theme.DSTextInput
 
 class ChecklistScreen(

@@ -269,7 +269,6 @@ class ParticipantRepository(
         userId: String,
         approve: Boolean,
     ) {
-        if (!BackendFeatureFlags.JOIN_BY_CODE_ENABLED) return
         api.resolveRequest(tripId, userId, approve)
 
         db.transaction {
