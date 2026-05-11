@@ -12,6 +12,7 @@ data class TripListState(
     val searchQuery: String = "",
     val activeFilter: TripFilter = TripFilter.ALL,
     val pendingCount: Long = 0L,
+    val pendingInvitationByTripId: Map<String, String> = emptyMap(),
 ) : UiState
 
 sealed interface TripListIntent : UiIntent {
@@ -28,6 +29,14 @@ sealed interface TripListIntent : UiIntent {
     ) : TripListIntent
 
     data class AcceptInvitation(
+        val invitationId: String,
+    ) : TripListIntent
+
+    data class AcceptPendingInvitation(
+        val invitationId: String,
+    ) : TripListIntent
+
+    data class DeclinePendingInvitation(
         val invitationId: String,
     ) : TripListIntent
 

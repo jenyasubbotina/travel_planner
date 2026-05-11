@@ -40,7 +40,8 @@ class TripListScreenModel(
             _activeFilter,
             repository.getTripsFlow(),
             outbox.observePendingCount(),
-        ) { query, filter, allTrips, pendingCount ->
+            participantRepository.getPendingInvitationsFlow(),
+        ) { query, filter, allTrips, pendingCount, pendingInvitations ->
             val searchedTrips =
                 if (query.isEmpty()) {
                     allTrips
@@ -55,16 +56,32 @@ class TripListScreenModel(
 
             val filteredTrips =
                 when (filter) {
-                    TripFilter.UPCOMING -> searchedTrips.filter { it.status != "ARCHIVED" && (it.endDate?.toEpochMillis() ?: 0L) >= now }
-                    TripFilter.ARCHIVED -> searchedTrips.filter { it.status == "ARCHIVED" || (it.endDate?.toEpochMillis() ?: 0L) < now }
-                    TripFilter.ALL -> searchedTrips
+                    TripFilter.UPCOMING -> {
+                        searchedTrips.filter {
+                            it.status != "ARCHIVED" && (it.endDate?.toEpochMillis() ?: 0L) >= now
+                        }
+                    }
+
+                    TripFilter.ARCHIVED -> {
+                        searchedTrips.filter {
+                            it.status == "ARCHIVED" || (it.endDate?.toEpochMillis() ?: 0L) < now
+                        }
+                    }
+
+                    TripFilter.ALL -> {
+                        searchedTrips
+                    }
                 }
+
+            val pendingInvitationByTripId =
+                pendingInvitations.associate { it.tripId to it.invitationId }
 
             TripListState(
                 trips = filteredTrips,
                 searchQuery = query,
                 activeFilter = filter,
                 pendingCount = pendingCount,
+                pendingInvitationByTripId = pendingInvitationByTripId,
             )
         }.stateIn(
             scope = screenModelScope,
@@ -87,7 +104,15 @@ class TripListScreenModel(
             }
 
             is TripListIntent.AcceptInvitation -> {
-                acceptInvitation(intent.invitationId)
+                registerInvitationLocally(intent.invitationId)
+            }
+
+            is TripListIntent.AcceptPendingInvitation -> {
+                acceptPendingInvitation(intent.invitationId)
+            }
+
+            is TripListIntent.DeclinePendingInvitation -> {
+                declinePendingInvitation(intent.invitationId)
             }
 
             is TripListIntent.Refresh -> {
@@ -111,10 +136,42 @@ class TripListScreenModel(
         }
     }
 
-    private fun acceptInvitation(invitationId: String) {
+    private fun registerInvitationLocally(invitationId: String) {
+        screenModelScope.launch {
+            val trimmed = invitationId.trim()
+            try {
+                val invitations = participantRepository.fetchPendingInvitations()
+                val match = invitations.firstOrNull { it.id == trimmed }
+                if (match == null) {
+                    sendEffect(TripListEffect.ShowMessage("Приглашение не найдено"))
+                    return@launch
+                }
+                repository.savePendingInvitationPlaceholder(match)
+                participantRepository.upsertPendingInvitation(match)
+                sendEffect(TripListEffect.ShowMessage("Приглашение добавлено. Решите принять или отклонить."))
+            } catch (e: BackendApiException) {
+                println("[register-invite] ${e.statusCode} ${e.error.code}: ${e.error.message}")
+                val msg =
+                    when (e.statusCode) {
+                        400, 422 -> "Неверный формат кода приглашения"
+                        403 -> "Приглашение отправлено на другой email"
+                        404 -> "Приглашение не найдено"
+                        else -> "Не удалось загрузить приглашение (${e.statusCode})"
+                    }
+                sendEffect(TripListEffect.ShowMessage(msg))
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                println("[register-invite] unexpected: ${e::class.simpleName}: ${e.message}")
+                sendEffect(TripListEffect.ShowMessage("Не удалось загрузить приглашение: ${e.message ?: e::class.simpleName}"))
+            }
+        }
+    }
+
+    private fun acceptPendingInvitation(invitationId: String) {
         screenModelScope.launch {
             try {
-                participantRepository.acceptInvitation(invitationId.trim())
+                participantRepository.acceptInvitation(invitationId)
                 globalSyncManager.forceFullRefresh()
                 sendEffect(TripListEffect.ShowMessage("Вы добавлены в поездку"))
             } catch (e: VersionConflictException) {
@@ -138,6 +195,29 @@ class TripListScreenModel(
         }
     }
 
+    private fun declinePendingInvitation(invitationId: String) {
+        screenModelScope.launch {
+            try {
+                participantRepository.declineInvitation(invitationId)
+                sendEffect(TripListEffect.ShowMessage("Приглашение отклонено"))
+            } catch (e: BackendApiException) {
+                println("[decline] ${e.statusCode} ${e.error.code}: ${e.error.message}")
+                val msg =
+                    when (e.statusCode) {
+                        403 -> "Приглашение отправлено на другой email"
+                        404 -> "Приглашение не найдено"
+                        else -> "Не удалось отклонить приглашение (${e.statusCode})"
+                    }
+                sendEffect(TripListEffect.ShowMessage(msg))
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                println("[decline] unexpected: ${e::class.simpleName}: ${e.message}")
+                sendEffect(TripListEffect.ShowMessage("Не удалось отклонить приглашение: ${e.message ?: e::class.simpleName}"))
+            }
+        }
+    }
+
     private fun requestJoin(code: String) {
         screenModelScope.launch {
             val currentUser = userSession.currentUser.value
@@ -156,7 +236,6 @@ class TripListScreenModel(
 
                 if (tripResponse != null) {
                     sendEffect(TripListEffect.ShowMessage("Заявка отправлена. Ожидайте подтверждения."))
-                    syncTrips()
                 }
             } catch (e: Exception) {
                 e.printStackTrace()

@@ -2,11 +2,13 @@ package org.travelplanner.app.data
 
 import app.cash.sqldelight.coroutines.asFlow
 import app.cash.sqldelight.coroutines.mapToList
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.Json
+import org.travelplanner.app.PendingInvitationEntity
 import org.travelplanner.app.TripJoinRequestEntity
 import org.travelplanner.app.TripParticipantEntity
 import org.travelplanner.app.core.BackendFeatureFlags
@@ -27,9 +29,17 @@ class ParticipantRepository(
     private val syncTrigger: SyncTrigger,
     private val userSession: UserSession,
     private val json: Json,
+    private val tripRepository: TripRepository,
 ) {
     private val queries = db.participantsQueries
     private val joinRequestQueries = db.joinRequestsQueries
+    private val pendingInvitationQueries = db.pendingInvitationsQueries
+
+    fun getPendingInvitationsFlow(): Flow<List<PendingInvitationEntity>> =
+        pendingInvitationQueries
+            .getAllPendingInvitations()
+            .asFlow()
+            .mapToList(Dispatchers.IO)
 
     private fun getParticipantsEntityFlow(tripId: String): Flow<List<TripParticipantEntity>> =
         queries.getParticipantsForTrip(tripId).asFlow().mapToList(Dispatchers.IO)
@@ -132,6 +142,85 @@ class ParticipantRepository(
 
     suspend fun acceptInvitation(invitationId: String) {
         api.acceptInvitation(invitationId)
+        pendingInvitationQueries.deletePendingInvitation(invitationId)
+    }
+
+    suspend fun declineInvitation(invitationId: String) {
+        val tripId =
+            pendingInvitationQueries
+                .getPendingInvitationById(invitationId)
+                .executeAsOneOrNull()
+                ?.tripId
+        api.declineInvitation(invitationId)
+        db.transaction {
+            pendingInvitationQueries.deletePendingInvitation(invitationId)
+            tripId?.let { tripRepository.deletePendingPlaceholderIfStillPending(it) }
+        }
+    }
+
+    suspend fun fetchPendingInvitations(): List<InvitationResponse> = api.getPendingInvitations()
+
+    suspend fun fetchTripPendingInvitations(tripId: String): List<InvitationResponse> =
+        api.getTripPendingInvitations(tripId)
+
+    fun upsertPendingInvitation(invitation: InvitationResponse) {
+        pendingInvitationQueries.insertOrReplacePendingInvitation(
+            invitationId = invitation.id,
+            tripId = invitation.tripId,
+            email = invitation.email,
+            role = invitation.role,
+            status = invitation.status,
+            createdAt = invitation.createdAt,
+        )
+    }
+
+    suspend fun syncPendingInvitations() {
+        val remote =
+            try {
+                api.getPendingInvitations()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                println("Pending invitations sync failed: ${e.message}")
+                return
+            }
+
+        val remoteIds = remote.map { it.id }.toSet()
+
+        db.transaction {
+            val localBeforeIds =
+                pendingInvitationQueries
+                    .getAllPendingInvitations()
+                    .executeAsList()
+                    .map { it.invitationId }
+
+            remote.forEach { invitation ->
+                pendingInvitationQueries.insertOrReplacePendingInvitation(
+                    invitationId = invitation.id,
+                    tripId = invitation.tripId,
+                    email = invitation.email,
+                    role = invitation.role,
+                    status = invitation.status,
+                    createdAt = invitation.createdAt,
+                )
+                tripRepository.savePendingInvitationPlaceholder(invitation)
+            }
+
+            val obsolete = localBeforeIds.filter { it !in remoteIds }
+            obsolete.forEach { invId ->
+                val staleTripId =
+                    pendingInvitationQueries
+                        .getPendingInvitationById(invId)
+                        .executeAsOneOrNull()
+                        ?.tripId
+                pendingInvitationQueries.deletePendingInvitation(invId)
+                staleTripId?.let { tripRepository.deletePendingPlaceholderIfStillPending(it) }
+            }
+        }
+    }
+
+    fun clearAllPendingInvitations() {
+        pendingInvitationQueries.deleteAllPendingInvitations()
     }
 
     fun changeRole(

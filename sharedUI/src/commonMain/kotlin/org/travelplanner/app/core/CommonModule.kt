@@ -98,6 +98,7 @@ val commonModule =
                 syncTrigger = get(),
                 userSession = get(),
                 json = get(),
+                tripRepository = get(),
             )
         }
 

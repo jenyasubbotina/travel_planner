@@ -1,0 +1,32 @@
+CREATE TABLE pendingInvitationEntity (
+    invitationId TEXT NOT NULL PRIMARY KEY,
+    tripId TEXT NOT NULL,
+    email TEXT NOT NULL DEFAULT '',
+    role TEXT NOT NULL DEFAULT 'EDITOR',
+    status TEXT NOT NULL DEFAULT 'PENDING',
+    createdAt TEXT NOT NULL DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS idx_pending_invitation_trip ON pendingInvitationEntity(tripId);
+
+getAllPendingInvitations:
+SELECT * FROM pendingInvitationEntity ORDER BY createdAt DESC;
+
+getPendingInvitationById:
+SELECT * FROM pendingInvitationEntity WHERE invitationId = ?;
+
+getPendingInvitationByTripId:
+SELECT * FROM pendingInvitationEntity WHERE tripId = ? LIMIT 1;
+
+getPendingInvitationTripIds:
+SELECT tripId FROM pendingInvitationEntity;
+
+insertOrReplacePendingInvitation:
+INSERT OR REPLACE INTO pendingInvitationEntity(invitationId, tripId, email, role, status, createdAt)
+VALUES (?, ?, ?, ?, ?, ?);
+
+deletePendingInvitation:
+DELETE FROM pendingInvitationEntity WHERE invitationId = ?;
+
+deleteAllPendingInvitations:
+DELETE FROM pendingInvitationEntity;

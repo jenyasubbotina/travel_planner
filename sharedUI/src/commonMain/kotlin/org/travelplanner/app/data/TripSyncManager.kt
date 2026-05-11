@@ -123,6 +123,8 @@ class GlobalSyncManager(
                         try {
                             outbox.deleteAll()
                             db.syncCursorsQueries.deleteAllCursors()
+                            participantRepo.clearAllPendingInvitations()
+                            tripRepo.clearAllUserData()
                         } catch (_: Exception) {
                         }
                         try {
@@ -240,6 +242,12 @@ class GlobalSyncManager(
     private suspend fun performFullSync() {
         knownTrips = api.getTrips()
         tripRepo.saveSyncedTrips(knownTrips)
+
+        try {
+            participantRepo.syncPendingInvitations()
+        } catch (e: Exception) {
+            println("[Sync] pending invitations sync failed: ${e.message}")
+        }
 
         for (trip in knownTrips) {
             try {

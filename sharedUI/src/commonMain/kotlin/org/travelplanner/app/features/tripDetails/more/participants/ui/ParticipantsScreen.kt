@@ -30,6 +30,7 @@ import cafe.adriel.voyager.core.screen.Screen
 import cafe.adriel.voyager.koin.getScreenModel
 import cafe.adriel.voyager.navigator.LocalNavigator
 import cafe.adriel.voyager.navigator.currentOrThrow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.filterNotNull
@@ -37,6 +38,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.koin.core.parameter.parametersOf
+import org.travelplanner.app.core.InvitationResponse
 import org.travelplanner.app.core.UserSession
 import org.travelplanner.app.data.ParticipantRepository
 import org.travelplanner.app.data.TripRepository
@@ -47,6 +49,7 @@ import org.travelplanner.app.features.tripDetails.more.ParticipantRowDetailed
 data class ParticipantsState(
     val participants: List<Participant> = emptyList(),
     val pendingRequests: List<PendingUser> = emptyList(),
+    val pendingInvitations: List<InvitationResponse> = emptyList(),
     val isOwner: Boolean = false,
 )
 
@@ -62,15 +65,19 @@ class ParticipantsScreenModel(
             .filterNotNull()
             .map { trip -> trip.ownerUserId == userSession.currentUser.value?.id }
 
+    private val _pendingInvitations = MutableStateFlow<List<InvitationResponse>>(emptyList())
+
     val state =
         combine(
             participantRepository.getParticipantsFlow(tripId),
             participantRepository.getPendingRequestsFlow(tripId),
+            _pendingInvitations,
             isOwnerFlow,
-        ) { participants, pending, isOwner ->
+        ) { participants, pending, invitations, isOwner ->
             ParticipantsState(
                 participants = participants,
-                pendingRequests = if (isOwner) pending else emptyList(),
+                pendingRequests = pending,
+                pendingInvitations = invitations,
                 isOwner = isOwner,
             )
         }.stateIn(screenModelScope, SharingStarted.WhileSubscribed(5000), ParticipantsState())
@@ -79,6 +86,17 @@ class ParticipantsScreenModel(
         screenModelScope.launch {
             try {
                 participantRepository.syncParticipants(tripId)
+            } catch (_: Exception) {
+            }
+        }
+        refreshPendingInvitations()
+    }
+
+    private fun refreshPendingInvitations() {
+        screenModelScope.launch {
+            try {
+                _pendingInvitations.value =
+                    participantRepository.fetchTripPendingInvitations(tripId)
             } catch (_: Exception) {
             }
         }
@@ -168,8 +186,42 @@ class ParticipantsScreen(
                                     name = req.name,
                                     email = req.email,
                                     isPending = true,
-                                    onAccept = { screenModel.resolveRequest(req.id, true) },
-                                    onDecline = { screenModel.resolveRequest(req.id, false) },
+                                    onAccept =
+                                        if (state.isOwner) {
+                                            { screenModel.resolveRequest(req.id, true) }
+                                        } else {
+                                            null
+                                        },
+                                    onDecline =
+                                        if (state.isOwner) {
+                                            { screenModel.resolveRequest(req.id, false) }
+                                        } else {
+                                            null
+                                        },
+                                )
+                            }
+                        }
+                    }
+                }
+
+                item {
+                    if (state.pendingInvitations.isNotEmpty()) {
+                        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                            Divider(
+                                color = Color(0xFFF3F4F6),
+                                modifier = Modifier.padding(vertical = 8.dp),
+                            )
+                            Text(
+                                "ПРИГЛАШЕНИЯ ОТПРАВЛЕНЫ",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFF59E0B),
+                            )
+                            state.pendingInvitations.forEach { invite ->
+                                ParticipantRowDetailed(
+                                    name = invite.email,
+                                    email = "Приглашение • ${invite.role}",
+                                    isPending = true,
                                 )
                             }
                         }

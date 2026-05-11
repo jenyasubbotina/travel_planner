@@ -1,0 +1,10 @@
+CREATE TABLE pendingInvitationEntity (
+    invitationId TEXT NOT NULL PRIMARY KEY,
+    tripId TEXT NOT NULL,
+    email TEXT NOT NULL DEFAULT '',
+    role TEXT NOT NULL DEFAULT 'EDITOR',
+    status TEXT NOT NULL DEFAULT 'PENDING',
+    createdAt TEXT NOT NULL DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS idx_pending_invitation_trip ON pendingInvitationEntity(tripId);

@@ -45,6 +45,7 @@ import org.travelplanner.app.core.TripUtils.formatNumber
 import org.travelplanner.app.core.TripUtils.isoToEpochMillis
 import org.travelplanner.app.core.TripUtils.pluralizeDays
 import org.travelplanner.app.core.UserSession
+import org.travelplanner.app.core.auth.AuthTokenManager
 import org.travelplanner.app.core.rememberResolvedImageUrl
 import org.travelplanner.app.data.GlobalSyncManager
 import org.travelplanner.app.data.NetworkState
@@ -53,6 +54,7 @@ import org.travelplanner.app.domain.Trip
 import org.travelplanner.app.features.profile.ui.ProfileAvatar
 import org.travelplanner.app.features.tripDetails.SyncIndicator
 import org.travelplanner.app.features.tripDetails.TripDetailsScreen
+import org.travelplanner.app.theme.DSButton
 import org.travelplanner.app.theme.DSTextChip
 import org.travelplanner.app.theme.DSTextInput
 import kotlin.math.ceil
@@ -69,6 +71,7 @@ class TripListScreen : Screen {
         val userSession = koinInject<UserSession>()
         val globalSyncManager = koinInject<GlobalSyncManager>()
         val gatewayManager = koinInject<GatewayConfigManager>()
+        val authTokenManager = koinInject<AuthTokenManager>()
         val networkState by globalSyncManager.networkState.collectAsState()
         val retryCountdown by globalSyncManager.retryCountdown.collectAsState()
         val gatewayConfig by gatewayManager.config.collectAsState()
@@ -104,7 +107,14 @@ class TripListScreen : Screen {
                             pendingCount = state.pendingCount,
                             retrySeconds = retryCountdown,
                             currentConfig = gatewayConfig,
-                            onConfigSave = { scope.launch { gatewayManager.updateConfig(it) } },
+                            onConfigSave = { newConfig ->
+                                scope.launch {
+                                    if (newConfig.address != gatewayConfig.address) {
+                                        authTokenManager.logout()
+                                    }
+                                    gatewayManager.updateConfig(newConfig)
+                                }
+                            },
                         )
                         Spacer(Modifier.width(8.dp))
                         ProfileAvatar(userSession = userSession, navigator = navigator)
@@ -269,9 +279,29 @@ class TripListScreen : Screen {
                     ) {
                         items(state.trips) { trip ->
                             if (trip.status == "PENDING_JOIN") {
+                                val invitationId = state.pendingInvitationByTripId[trip.id]
                                 PendingTripCard(
                                     trip = trip,
+                                    invitationId = invitationId,
                                     onRefresh = { screenModel.handleIntent(TripListIntent.Refresh) },
+                                    onAccept = {
+                                        invitationId?.let {
+                                            screenModel.handleIntent(
+                                                TripListIntent.AcceptPendingInvitation(
+                                                    it,
+                                                ),
+                                            )
+                                        }
+                                    },
+                                    onDecline = {
+                                        invitationId?.let {
+                                            screenModel.handleIntent(
+                                                TripListIntent.DeclinePendingInvitation(
+                                                    it,
+                                                ),
+                                            )
+                                        }
+                                    },
                                 )
                             } else {
                                 TripCard(trip) {
@@ -530,8 +560,12 @@ fun TripCard(
 @Composable
 fun PendingTripCard(
     trip: Trip,
-    onRefresh: () -> Unit,
+    invitationId: String? = null,
+    onRefresh: () -> Unit = {},
+    onAccept: () -> Unit = {},
+    onDecline: () -> Unit = {},
 ) {
+    val isInvitation = invitationId != null
     Card(
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = Color(0xFFFFFBEB)),
@@ -540,35 +574,58 @@ fun PendingTripCard(
                 .fillMaxWidth()
                 .border(1.dp, Color(0xFFFDE68A), RoundedCornerShape(16.dp)),
     ) {
-        Row(
-            modifier =
-                Modifier
-                    .padding(16.dp)
-                    .fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Ожидание подтверждения",
-                    fontSize = 12.sp,
-                    color = Color(0xFFD97706),
-                    fontWeight = FontWeight.Bold,
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(text = trip.title, fontSize = 18.sp, fontWeight = FontWeight.Medium)
-                Text(text = trip.destination, fontSize = 14.sp, color = Color.Gray)
+        Column(modifier = Modifier.padding(16.dp).fillMaxWidth()) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = if (isInvitation) "Вас пригласили в поездку" else "Ожидание подтверждения",
+                        fontSize = 12.sp,
+                        color = Color(0xFFD97706),
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(text = trip.title, fontSize = 18.sp, fontWeight = FontWeight.Medium)
+                    if (trip.destination.isNotBlank()) {
+                        Text(text = trip.destination, fontSize = 14.sp, color = Color.Gray)
+                    }
+                }
+
+                if (!isInvitation) {
+                    IconButton(
+                        onClick = onRefresh,
+                        modifier = Modifier.background(Color.White, CircleShape),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Обновить статус",
+                            tint = Color(0xFFD97706),
+                        )
+                    }
+                }
             }
 
-            IconButton(
-                onClick = onRefresh,
-                modifier = Modifier.background(Color.White, CircleShape),
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Refresh,
-                    contentDescription = "Обновить статус",
-                    tint = Color(0xFFD97706),
-                )
+            if (isInvitation) {
+                Spacer(Modifier.height(12.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    DSButton(
+                        text = "Принять",
+                        onClick = onAccept,
+                        modifier = Modifier.weight(1f),
+                    )
+                    DSButton(
+                        text = "Отклонить",
+                        onClick = onDecline,
+                        modifier = Modifier.weight(1f),
+                        isOutline = true,
+                    )
+                }
             }
         }
     }

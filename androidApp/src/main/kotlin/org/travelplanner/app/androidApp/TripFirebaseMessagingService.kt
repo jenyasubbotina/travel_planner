@@ -15,12 +15,10 @@ import org.travelplanner.app.core.RegisterDeviceRequest
 import org.travelplanner.app.core.TripApiService
 import org.travelplanner.app.core.auth.AuthTokenManager
 import org.travelplanner.app.data.GlobalSyncManager
-import org.travelplanner.app.data.ParticipantRepository
 
 class TripFirebaseMessagingService : FirebaseMessagingService() {
     private val globalSyncManager: GlobalSyncManager by inject()
     private val api: TripApiService by inject()
-    private val participantRepo: ParticipantRepository by inject()
     private val authTokenManager: AuthTokenManager by inject()
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
@@ -32,12 +30,6 @@ class TripFirebaseMessagingService : FirebaseMessagingService() {
         val invitationId = data["invitationId"]
 
         if (invitationId != null) {
-            scope.launch {
-                try {
-                    participantRepo.acceptInvitation(invitationId)
-                } catch (_: Exception) {
-                }
-            }
             showInviteNotification(message, invitationId, data["tripTitle"])
         }
 

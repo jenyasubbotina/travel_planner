@@ -44,6 +44,7 @@ import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import org.koin.core.parameter.parametersOf
 import org.travelplanner.app.core.GatewayConfigManager
+import org.travelplanner.app.core.auth.AuthTokenManager
 import org.travelplanner.app.core.TripUtils
 import org.travelplanner.app.core.UserSession
 import org.travelplanner.app.data.TripDetailsEffect
@@ -69,6 +70,7 @@ data class TripDetailsScreen(
         val tripSyncState by screenModel.state.collectAsState()
         val userSession = koinInject<UserSession>()
         val gatewayManager = koinInject<GatewayConfigManager>()
+        val authTokenManager = koinInject<AuthTokenManager>()
         val gatewayConfig by gatewayManager.config.collectAsState()
         val scope = rememberCoroutineScope()
 
@@ -155,7 +157,14 @@ data class TripDetailsScreen(
                                 pendingApprovalsCount = tripSyncState.pendingApprovalsCount,
                                 pendingProposalsCount = tripSyncState.pendingProposalsCount,
                                 currentConfig = gatewayConfig,
-                                onConfigSave = { scope.launch { gatewayManager.updateConfig(it) } },
+                                onConfigSave = { newConfig ->
+                                    scope.launch {
+                                        if (newConfig.address != gatewayConfig.address) {
+                                            authTokenManager.logout()
+                                        }
+                                        gatewayManager.updateConfig(newConfig)
+                                    }
+                                },
                                 onRetrySync = { screenModel.handleIntent(TripDetailsIntent.PerformSync) },
                                 onDiscardDeadEntry = { entryId ->
                                     screenModel.handleIntent(TripDetailsIntent.DiscardDeadEntry(entryId))

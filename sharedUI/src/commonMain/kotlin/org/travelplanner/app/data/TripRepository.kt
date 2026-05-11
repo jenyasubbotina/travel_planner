@@ -13,6 +13,7 @@ import org.travelplanner.app.AttachmentEntity
 import org.travelplanner.app.TripEntity
 import org.travelplanner.app.core.AttachmentResponse
 import org.travelplanner.app.core.BackendFeatureFlags
+import org.travelplanner.app.core.InvitationResponse
 import org.travelplanner.app.core.TripApiService
 import org.travelplanner.app.core.TripResponse
 import org.travelplanner.app.core.UserSession
@@ -71,12 +72,15 @@ class TripRepository(
 
     fun saveSyncedTrips(remoteTrips: List<TripResponse>) {
         queries.transaction {
-            val localTripIds = queries.getAllTrips().executeAsList().map { it.id }
+            val localTrips = queries.getAllTrips().executeAsList()
             val remoteTripIds = remoteTrips.map { it.id }.toSet()
 
             remoteTrips.forEach { mergeTripFromServer(it) }
 
-            val tripsToDelete = localTripIds.filter { it !in remoteTripIds }
+            val tripsToDelete =
+                localTrips
+                    .filter { it.id !in remoteTripIds && it.status != "PENDING_JOIN" }
+                    .map { it.id }
             tripsToDelete.forEach { obsoleteTripId ->
                 db.expensesQueries.deleteExpensesForTrip(obsoleteTripId)
                 db.eventsQueries.deleteEventsForTrip(obsoleteTripId)
@@ -92,6 +96,22 @@ class TripRepository(
 
     fun applyServerTripDelta(response: TripResponse) {
         queries.transaction { mergeTripFromServer(response) }
+    }
+
+    fun clearAllUserData() {
+        db.transaction {
+            val tripIds = queries.getAllTrips().executeAsList().map { it.id }
+            tripIds.forEach { tripId ->
+                db.expensesQueries.deleteExpensesForTrip(tripId)
+                db.eventsQueries.deleteEventsForTrip(tripId)
+                db.participantsQueries.deleteParticipantsForTrip(tripId)
+                db.historyQueries.deleteLogsForTrip(tripId)
+                db.checklistsQueries.deleteChecklistForTrip(tripId)
+                db.attachmentsQueries.deleteAttachmentsForTrip(tripId)
+                db.joinRequestsQueries.deleteJoinRequestsForTrip(tripId)
+                queries.deleteTripLocal(tripId)
+            }
+        }
     }
 
     private fun mergeTripFromServer(response: TripResponse) {
@@ -486,7 +506,79 @@ class TripRepository(
         name: String,
     ): TripResponse? {
         if (!BackendFeatureFlags.JOIN_BY_CODE_ENABLED) return null
-        return api.requestJoinTrip(code, userId, name)
+        val response = api.requestJoinTrip(code, userId, name) ?: return null
+        saveAsPendingJoin(response)
+        return response
+    }
+
+    private fun saveAsPendingJoin(response: TripResponse) {
+        queries.transaction {
+            val existing = queries.getTripById(response.id).executeAsOneOrNull()
+            queries.insertTripWithId(
+                id = response.id,
+                title = response.title.ifBlank { existing?.title ?: "" },
+                destination = response.destination.ifBlank { existing?.destination ?: "" },
+                startDate = response.startDate ?: existing?.startDate,
+                endDate = response.endDate ?: existing?.endDate,
+                currency = response.baseCurrency,
+                totalBudget = response.totalBudget.ifBlank { existing?.totalBudget ?: "0" },
+                spentAmount = existing?.spentAmount ?: "0",
+                description = response.description ?: existing?.description,
+                participantCount = existing?.participantCount ?: 1L,
+                status = "PENDING_JOIN",
+                joinCode = response.joinCode.ifBlank { existing?.joinCode },
+                ownerUserId = response.createdBy,
+                imageUrl = response.imageUrl ?: existing?.imageUrl,
+                filesJson = existing?.filesJson,
+                baseCurrency = response.baseCurrency,
+                version = response.version,
+                createdBy = response.createdBy,
+                createdAt = response.createdAt,
+                updatedAt = response.updatedAt,
+            )
+        }
+    }
+
+    fun savePendingInvitationPlaceholder(invitation: InvitationResponse) {
+        queries.transaction {
+            val existing = queries.getTripById(invitation.tripId).executeAsOneOrNull()
+            if (existing != null && existing.status != "PENDING_JOIN") {
+                return@transaction
+            }
+            val snapshot = invitation.trip
+            val now = invitation.createdAt
+            queries.insertTripWithId(
+                id = invitation.tripId,
+                title = snapshot?.title?.takeIf { it.isNotBlank() } ?: existing?.title ?: "Приглашение в поездку",
+                destination = snapshot?.destination ?: existing?.destination ?: "",
+                startDate = snapshot?.startDate ?: existing?.startDate,
+                endDate = snapshot?.endDate ?: existing?.endDate,
+                currency = snapshot?.baseCurrency ?: existing?.currency ?: "USD",
+                totalBudget = existing?.totalBudget ?: "0",
+                spentAmount = existing?.spentAmount ?: "0",
+                description = existing?.description,
+                participantCount = existing?.participantCount ?: 1L,
+                status = "PENDING_JOIN",
+                joinCode = existing?.joinCode,
+                ownerUserId = existing?.ownerUserId ?: "",
+                imageUrl = snapshot?.imageUrl ?: existing?.imageUrl,
+                filesJson = existing?.filesJson,
+                baseCurrency = snapshot?.baseCurrency ?: existing?.baseCurrency ?: "USD",
+                version = existing?.version ?: 0L,
+                createdBy = existing?.createdBy ?: "",
+                createdAt = existing?.createdAt ?: now,
+                updatedAt = existing?.updatedAt ?: now,
+            )
+        }
+    }
+
+    fun deletePendingPlaceholderIfStillPending(tripId: String) {
+        queries.transaction {
+            val existing = queries.getTripById(tripId).executeAsOneOrNull() ?: return@transaction
+            if (existing.status == "PENDING_JOIN") {
+                queries.deleteTripLocal(tripId)
+            }
+        }
     }
 
     private fun isoNow(): String =

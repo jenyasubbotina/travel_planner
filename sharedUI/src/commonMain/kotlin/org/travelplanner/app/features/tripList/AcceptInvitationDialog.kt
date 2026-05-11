@@ -29,11 +29,11 @@ fun AcceptInvitationDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Принять приглашение") },
+        title = { Text("Добавить поездку") },
         text = {
             Column {
                 Text(
-                    text = "Вставьте код приглашения, который прислал организатор поездки.",
+                    text = "Вставьте код приглашения, который прислал организатор. Мы добавим его в список — вы сможете принять или отклонить.",
                     fontSize = 14.sp,
                     color = Color.Gray,
                 )
@@ -56,7 +56,7 @@ fun AcceptInvitationDialog(
         },
         confirmButton = {
             DSButton(
-                text = "Принять",
+                text = "Добавить",
                 onClick = { if (invitationId.isNotBlank()) onSubmit(invitationId) },
                 enabled = invitationId.isNotBlank() && !isOffline,
             )

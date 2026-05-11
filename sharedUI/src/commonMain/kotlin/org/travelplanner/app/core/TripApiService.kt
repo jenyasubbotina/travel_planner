@@ -291,6 +291,16 @@ class TripApiService(
         return res
     }
 
+    suspend fun declineInvitation(invitationId: String) {
+        client.post("$baseUrl/api/v1/trip-invitations/$invitationId/decline")
+    }
+
+    suspend fun getPendingInvitations(): List<InvitationResponse> =
+        client.get("$baseUrl/api/v1/trip-invitations").body()
+
+    suspend fun getTripPendingInvitations(tripId: String): List<InvitationResponse> =
+        client.get("$baseUrl/api/v1/trips/$tripId/invitations").body()
+
     // -- Itinerary --
 
     suspend fun getItinerary(tripId: String): List<ItineraryPointResponse> = client.get("$baseUrl/api/v1/trips/$tripId/itinerary").body()
