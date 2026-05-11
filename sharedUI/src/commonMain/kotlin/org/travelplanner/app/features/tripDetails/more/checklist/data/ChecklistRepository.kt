@@ -2,8 +2,7 @@ package org.travelplanner.app.features.tripDetails.more.checklist.data
 
 import app.cash.sqldelight.coroutines.asFlow
 import app.cash.sqldelight.coroutines.mapToList
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.IO
+import org.travelplanner.app.AppBackground
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.Json
@@ -32,7 +31,7 @@ class ChecklistRepository(
     private val queries = db.checklistsQueries
 
     private fun getChecklistEntityFlow(tripId: String): Flow<List<TripChecklistEntity>> =
-        queries.getChecklistForTrip(tripId).asFlow().mapToList(Dispatchers.IO)
+        queries.getChecklistForTrip(tripId).asFlow().mapToList(AppBackground)
 
     fun getChecklistFlow(tripId: String): Flow<List<ChecklistItem>> =
         getChecklistEntityFlow(tripId).map { list -> list.map { it.toDomain(json) } }

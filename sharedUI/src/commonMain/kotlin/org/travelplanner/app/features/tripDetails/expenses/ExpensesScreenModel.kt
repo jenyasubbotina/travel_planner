@@ -1,8 +1,7 @@
 package org.travelplanner.app.features.tripDetails.expenses
 
 import cafe.adriel.voyager.core.model.screenModelScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.IO
+import org.travelplanner.app.AppBackground
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -34,7 +33,7 @@ class ExpensesScreenModel(
     private val _activeCategory = MutableStateFlow("ALL")
 
     init {
-        screenModelScope.launch(Dispatchers.IO) {
+        screenModelScope.launch(AppBackground) {
             try {
                 expenseRepository.syncExpenses(tripId)
             } catch (e: Exception) {

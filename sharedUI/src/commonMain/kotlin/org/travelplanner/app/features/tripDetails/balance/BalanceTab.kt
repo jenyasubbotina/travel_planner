@@ -53,8 +53,8 @@ import cafe.adriel.voyager.navigator.LocalNavigator
 import cafe.adriel.voyager.navigator.currentOrThrow
 import cafe.adriel.voyager.navigator.tab.Tab
 import cafe.adriel.voyager.navigator.tab.TabOptions
-import org.koin.core.context.GlobalContext
 import org.koin.core.parameter.parametersOf
+import org.koin.mp.KoinPlatformTools
 import org.travelplanner.app.core.TripUtils.formatDate
 import org.travelplanner.app.features.profile.ui.GradientAvatar
 import org.travelplanner.app.features.profile.ui.avatarInitials
@@ -89,7 +89,7 @@ data class BalanceTab(
         val parentNavigator = LocalNavigator.currentOrThrow.parent!!
         val screenModel =
             parentNavigator.rememberNavigatorScreenModel<BalanceScreenModel>(tag = tripId) {
-                GlobalContext.get().get<BalanceScreenModel> { parametersOf(tripId) }
+                KoinPlatformTools.defaultContext().get().get<BalanceScreenModel> { parametersOf(tripId) }
             }
 
         val state by screenModel.state.collectAsState()

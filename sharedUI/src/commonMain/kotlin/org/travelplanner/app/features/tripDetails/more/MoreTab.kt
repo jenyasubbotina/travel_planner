@@ -68,8 +68,8 @@ import cafe.adriel.voyager.navigator.LocalNavigator
 import cafe.adriel.voyager.navigator.currentOrThrow
 import cafe.adriel.voyager.navigator.tab.Tab
 import cafe.adriel.voyager.navigator.tab.TabOptions
-import org.koin.core.context.GlobalContext
 import org.koin.core.parameter.parametersOf
+import org.koin.mp.KoinPlatformTools
 import org.travelplanner.app.core.BackendFeatureFlags
 import org.travelplanner.app.core.FilePicker
 import org.travelplanner.app.core.rememberFileDownloader
@@ -98,7 +98,7 @@ data class MoreTab(
         val parentNavigator = LocalNavigator.currentOrThrow.parent!!
         val screenModel =
             parentNavigator.rememberNavigatorScreenModel<MoreTabScreenModel>(tag = tripId) {
-                GlobalContext.get().get<MoreTabScreenModel> { parametersOf(tripId) }
+                KoinPlatformTools.defaultContext().get().get<MoreTabScreenModel> { parametersOf(tripId) }
             }
 
         val state by screenModel.state.collectAsState()

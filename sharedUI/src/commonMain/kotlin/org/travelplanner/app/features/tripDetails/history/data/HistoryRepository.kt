@@ -2,8 +2,7 @@ package org.travelplanner.app.features.tripDetails.history.data
 
 import app.cash.sqldelight.coroutines.asFlow
 import app.cash.sqldelight.coroutines.mapToList
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.IO
+import org.travelplanner.app.AppBackground
 import kotlinx.coroutines.flow.Flow
 import org.travelplanner.app.HistoryLogEntity
 import org.travelplanner.app.core.BackendFeatureFlags
@@ -16,7 +15,7 @@ class HistoryRepository(
 ) {
     private val queries = db.historyQueries
 
-    fun getLogsFlow(tripId: String): Flow<List<HistoryLogEntity>> = queries.getLogsForTrip(tripId).asFlow().mapToList(Dispatchers.IO)
+    fun getLogsFlow(tripId: String): Flow<List<HistoryLogEntity>> = queries.getLogsForTrip(tripId).asFlow().mapToList(AppBackground)
 
     fun saveLogLocally(dto: HistoryLogDto) {
         queries.insertLog(

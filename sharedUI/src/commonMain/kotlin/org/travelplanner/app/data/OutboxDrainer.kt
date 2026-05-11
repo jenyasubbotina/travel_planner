@@ -1,8 +1,7 @@
 package org.travelplanner.app.data
 
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.IO
+import org.travelplanner.app.AppBackground
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.flow.StateFlow
@@ -60,7 +59,7 @@ class OutboxDrainer(
     private val maxRebaseAttempts = 3
     private val rebaseWaitTimeoutMillis = 30_000L
 
-    private val rebaseScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val rebaseScope = CoroutineScope(AppBackground + SupervisorJob())
 
     suspend fun drainAllEligible() {
         if (networkState.value != NetworkState.ONLINE) return

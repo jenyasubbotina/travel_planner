@@ -3,8 +3,7 @@ package org.travelplanner.app.data
 import app.cash.sqldelight.coroutines.asFlow
 import app.cash.sqldelight.coroutines.mapToList
 import app.cash.sqldelight.coroutines.mapToOne
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.IO
+import org.travelplanner.app.AppBackground
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.Json
@@ -235,31 +234,31 @@ class OutboxRepository(
         queries
             .getEntriesForTripByState(tripId, OutboxState.CONFLICT)
             .asFlow()
-            .mapToList(Dispatchers.IO)
+            .mapToList(AppBackground)
 
     fun observeDead(tripId: String): Flow<List<OutboxEntry>> =
         queries
             .getEntriesForTripByState(tripId, OutboxState.DEAD)
             .asFlow()
-            .mapToList(Dispatchers.IO)
+            .mapToList(AppBackground)
 
     fun observePendingCount(tripId: String): Flow<Long> =
         queries
             .countPendingForTrip(tripId)
             .asFlow()
-            .mapToOne(Dispatchers.IO)
+            .mapToOne(AppBackground)
 
     fun observePendingCount(): Flow<Long> =
         queries
             .countAllPending()
             .asFlow()
-            .mapToOne(Dispatchers.IO)
+            .mapToOne(AppBackground)
 
     fun observeDepthAlert(tripId: String): Flow<Boolean> =
         queries
             .countAllNonSuccessForTrip(tripId)
             .asFlow()
-            .mapToOne(Dispatchers.IO)
+            .mapToOne(AppBackground)
             .map { count -> count > DEPTH_CAP }
 
     fun getEntry(id: String): OutboxEntry? = queries.getEntryById(id).executeAsOneOrNull()

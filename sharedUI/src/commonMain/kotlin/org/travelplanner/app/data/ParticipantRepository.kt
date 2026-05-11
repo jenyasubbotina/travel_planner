@@ -2,8 +2,7 @@ package org.travelplanner.app.data
 
 import app.cash.sqldelight.coroutines.asFlow
 import app.cash.sqldelight.coroutines.mapToList
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.IO
+import org.travelplanner.app.AppBackground
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.Json
@@ -32,7 +31,7 @@ class ParticipantRepository(
     private val joinRequestQueries = db.joinRequestsQueries
 
     private fun getParticipantsEntityFlow(tripId: String): Flow<List<TripParticipantEntity>> =
-        queries.getParticipantsForTrip(tripId).asFlow().mapToList(Dispatchers.IO)
+        queries.getParticipantsForTrip(tripId).asFlow().mapToList(AppBackground)
 
     fun getParticipantsFlow(tripId: String): Flow<List<Participant>> =
         getParticipantsEntityFlow(tripId).map { list -> list.map { it.toDomain() } }
@@ -41,7 +40,7 @@ class ParticipantRepository(
         joinRequestQueries
             .getPendingRequestsForTrip(tripId)
             .asFlow()
-            .mapToList(Dispatchers.IO)
+            .mapToList(AppBackground)
             .map { rows -> rows.map { it.toPendingUser() } }
 
     suspend fun syncParticipants(tripId: String) {

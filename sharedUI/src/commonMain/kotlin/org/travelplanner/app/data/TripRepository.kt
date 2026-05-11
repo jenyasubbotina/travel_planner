@@ -4,8 +4,7 @@ import app.cash.sqldelight.coroutines.asFlow
 import app.cash.sqldelight.coroutines.mapToList
 import app.cash.sqldelight.coroutines.mapToOneOrNull
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.IO
+import org.travelplanner.app.AppBackground
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.Json
@@ -33,9 +32,9 @@ class TripRepository(
 ) {
     private val queries = db.tripsQueries
 
-    private fun getTripsEntityFlow(): Flow<List<TripEntity>> = queries.getAllTrips().asFlow().mapToList(Dispatchers.IO)
+    private fun getTripsEntityFlow(): Flow<List<TripEntity>> = queries.getAllTrips().asFlow().mapToList(AppBackground)
 
-    private fun getTripByIdEntity(id: String): Flow<TripEntity?> = queries.getTripById(id).asFlow().mapToOneOrNull(Dispatchers.IO)
+    private fun getTripByIdEntity(id: String): Flow<TripEntity?> = queries.getTripById(id).asFlow().mapToOneOrNull(AppBackground)
 
     fun getTripsFlow(): Flow<List<Trip>> = getTripsEntityFlow().map { list -> list.map { it.toDomain() } }
 
@@ -372,7 +371,7 @@ class TripRepository(
         db.attachmentsQueries
             .getTripLevelAttachmentsForTrip(tripId)
             .asFlow()
-            .mapToList(Dispatchers.IO)
+            .mapToList(AppBackground)
 
     fun saveAttachmentLocally(att: AttachmentResponse) {
         db.attachmentsQueries.insertOrReplaceAttachment(

@@ -1,5 +1,6 @@
 import org.gradle.kotlin.dsl.implementation
 import org.gradle.kotlin.dsl.withType
+import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.plugin.mpp.KotlinNativeTarget
 
@@ -13,6 +14,7 @@ plugins {
     alias(libs.plugins.buildConfig)
 }
 
+@OptIn(ExperimentalWasmDsl::class)
 kotlin {
     androidTarget() // We need the deprecated target to have working previews
 
@@ -21,6 +23,10 @@ kotlin {
     iosX64()
     iosArm64()
     iosSimulatorArm64()
+
+    wasmJs {
+        browser()
+    }
 
     sourceSets {
         commonMain.dependencies {
@@ -42,11 +48,8 @@ kotlin {
             implementation(libs.kotlinx.serialization.json)
             implementation(libs.koin.core)
             implementation(libs.koin.compose)
-            implementation(libs.coil)
-            implementation(libs.coil.network.ktor)
             implementation(libs.kotlinx.datetime)
             implementation(libs.kstore)
-            implementation(libs.kstore.file)
 
             implementation("org.jetbrains.compose.material:material-icons-core:1.7.3")
             implementation("org.jetbrains.compose.material:material-icons-extended:1.7.3")
@@ -56,11 +59,6 @@ kotlin {
             implementation("cafe.adriel.voyager:voyager-tab-navigator:1.1.0-beta03")
 
             implementation("app.cash.sqldelight:coroutines-extensions:2.2.1")
-
-            val ktorVersion = "3.4.0"
-            implementation("io.ktor:ktor-client-cio:$ktorVersion") // Or android
-            implementation("io.ktor:ktor-client-websockets:$ktorVersion")
-            implementation("io.ktor:ktor-client-logging:$ktorVersion")
         }
 
         commonTest.dependencies {
@@ -72,6 +70,7 @@ kotlin {
         androidMain.dependencies {
             implementation(libs.kotlinx.coroutines.android)
             implementation(libs.ktor.client.okhttp)
+            implementation(libs.ktor.client.logging)
             implementation(libs.sqlDelight.driver.android)
             implementation(libs.kstore.file)
 
@@ -79,20 +78,42 @@ kotlin {
             implementation(libs.androidx.work.runtime.ktx)
 
             implementation(libs.yandex.mapkit)
+            implementation(libs.coil)
+            implementation(libs.coil.network.ktor)
         }
 
         jvmMain.dependencies {
             implementation(compose.desktop.currentOs)
             implementation(libs.kotlinx.coroutines.swing)
             implementation(libs.ktor.client.okhttp)
+            implementation(libs.ktor.client.logging)
             implementation(libs.sqlDelight.driver.sqlite)
             implementation(libs.kstore.file)
+            implementation(libs.coil)
+            implementation(libs.coil.network.ktor)
         }
 
         iosMain.dependencies {
             implementation(libs.ktor.client.darwin)
+            implementation(libs.ktor.client.logging)
             implementation(libs.sqlDelight.driver.native)
             implementation(libs.kstore.file)
+            implementation(libs.coil)
+            implementation(libs.coil.network.ktor)
+        }
+
+        wasmJsMain.dependencies {
+            implementation(libs.ktor.client.js)
+            implementation(libs.ktor.client.logging)
+            implementation(libs.sqlDelight.driver.js)
+            implementation("app.cash.sqldelight:async-extensions:2.2.1")
+            implementation(libs.kstore.storage)
+            implementation(npm("sql.js", "1.13.0"))
+            implementation(npm("@cashapp/sqldelight-sqljs-worker", "2.2.1"))
+            implementation(devNpm("copy-webpack-plugin", "13.0.0"))
+            val coilVersion = "3.3.0"
+            implementation("io.coil-kt.coil3:coil-compose-wasm-js:$coilVersion")
+            implementation("io.coil-kt.coil3:coil-network-ktor3-wasm-js:$coilVersion")
         }
     }
 

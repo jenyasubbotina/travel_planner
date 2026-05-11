@@ -58,8 +58,8 @@ import cafe.adriel.voyager.navigator.LocalNavigator
 import cafe.adriel.voyager.navigator.currentOrThrow
 import cafe.adriel.voyager.navigator.tab.Tab
 import cafe.adriel.voyager.navigator.tab.TabOptions
-import org.koin.core.context.GlobalContext
 import org.koin.core.parameter.parametersOf
+import org.koin.mp.KoinPlatformTools
 import org.travelplanner.app.DSEmptyStateCard
 import org.travelplanner.app.core.TripUtils.toReadableDateRu
 import org.travelplanner.app.domain.Event
@@ -80,7 +80,7 @@ data class ItineraryTab(
         val parentNavigator = LocalNavigator.currentOrThrow.parent!!
         val screenModel =
             parentNavigator.rememberNavigatorScreenModel<ItineraryScreenModel>(tag = tripId) {
-                GlobalContext.get().get<ItineraryScreenModel> { parametersOf(tripId) }
+                KoinPlatformTools.defaultContext().get().get<ItineraryScreenModel> { parametersOf(tripId) }
             }
 
         val state by screenModel.state.collectAsState()
