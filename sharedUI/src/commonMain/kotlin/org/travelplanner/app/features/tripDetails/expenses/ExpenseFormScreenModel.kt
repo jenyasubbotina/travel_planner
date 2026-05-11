@@ -1,6 +1,7 @@
 package org.travelplanner.app.features.tripDetails.expenses
 
 import cafe.adriel.voyager.core.model.screenModelScope
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
@@ -10,6 +11,7 @@ import org.travelplanner.app.core.PendingUpdateStoredException
 import org.travelplanner.app.core.TripUtils.formatDate
 import org.travelplanner.app.core.UserSession
 import org.travelplanner.app.core.Validation
+import org.travelplanner.app.core.currencySymbol
 import org.travelplanner.app.core.toEpochMillis
 import org.travelplanner.app.core.toMoneyDouble
 import org.travelplanner.app.core.toMoneyString
@@ -17,6 +19,7 @@ import org.travelplanner.app.data.ExpenseRepository
 import org.travelplanner.app.data.ParticipantRepository
 import org.travelplanner.app.data.SplitInput
 import org.travelplanner.app.data.TripRepository
+import org.travelplanner.app.domain.Participant
 import kotlin.math.abs
 import kotlin.math.round
 
@@ -28,6 +31,15 @@ class ExpenseFormScreenModel(
     private val tripRepository: TripRepository,
 ) : BaseScreenModel<AddExpenseState, ExpenseFormIntent, ExpenseFormEffect>(AddExpenseState()) {
     private var editingExpenseId: String? = null
+    private var hasInitialized: Boolean = false
+
+    init {
+        screenModelScope.launch {
+            participantRepository.getParticipantsFlow(tripId).collectLatest { latest ->
+                if (hasInitialized) syncParticipants(latest)
+            }
+        }
+    }
 
     override fun handleIntent(intent: ExpenseFormIntent) {
         when (intent) {
@@ -81,7 +93,12 @@ class ExpenseFormScreenModel(
             }
 
             is ExpenseFormIntent.PhotoSelected -> {
-                updateState { copy(photoBytes = intent.bytes) }
+                updateState {
+                    copy(
+                        photoBytes = intent.bytes,
+                        imageUrl = if (intent.bytes == null) null else imageUrl,
+                    )
+                }
             }
 
             is ExpenseFormIntent.Save -> {
@@ -93,36 +110,16 @@ class ExpenseFormScreenModel(
     private fun initialize(expenseId: String?) {
         screenModelScope.launch {
             val participants = participantRepository.getParticipantsFlow(tripId).first()
-            val currentUser = userSession.currentUser.value
             val trip = tripRepository.getTripById(tripId).firstOrNull()
-            val currency = trip?.currency ?: "¥"
+            val currency = currencySymbol(trip?.currency ?: "RUB")
 
             if (expenseId == null) {
-                val myParticipantId =
-                    if (currentUser != null) {
-                        participants.find { it.userId == currentUser.id }?.id
-                    } else {
-                        null
-                    }
-                val defaultPayerId = myParticipantId ?: participants.firstOrNull()?.id
-
-                updateState {
-                    AddExpenseState(
-                        participants =
-                            participants.map {
-                                ParticipantSplitState(participant = it, isSelected = true)
-                            },
-                        payerId = defaultPayerId,
-                        currency = currency,
-                    )
-                }
+                updateState { bootstrapDefaults(participants, currency) }
                 editingExpenseId = null
-                recalculate()
             } else {
                 val expense =
                     expenseRepository.getExpenseById(expenseId).firstOrNull() ?: return@launch
                 val splits = expenseRepository.getExpenseSplitsFlow(expenseId).first()
-
                 val mode = expense.splitType.toSplitMethod()
 
                 updateState {
@@ -158,9 +155,52 @@ class ExpenseFormScreenModel(
                     )
                 }
                 editingExpenseId = expenseId
-                recalculate()
             }
+            hasInitialized = true
+            recalculate()
         }
+    }
+
+    private fun bootstrapDefaults(
+        participants: List<Participant>,
+        currency: String,
+    ): AddExpenseState {
+        val payerId = pickDefaultPayerId(participants)
+        return AddExpenseState(
+            participants =
+                participants.map {
+                    ParticipantSplitState(participant = it, isSelected = true)
+                },
+            payerId = payerId,
+            currency = currency,
+        )
+    }
+
+    private fun pickDefaultPayerId(participants: List<Participant>): Long? {
+        val currentUser = userSession.currentUser.value
+        val myParticipantId =
+            currentUser?.let { user -> participants.find { it.userId == user.id }?.id }
+        return myParticipantId ?: participants.firstOrNull()?.id
+    }
+
+    private fun syncParticipants(latest: List<Participant>) {
+        val current = currentState
+        if (current.participants.isEmpty() && latest.isEmpty()) return
+
+        val previousById = current.participants.associateBy { it.participant.id }
+        val merged =
+            latest.map { p ->
+                previousById[p.id]?.copy(participant = p)
+                    ?: ParticipantSplitState(participant = p, isSelected = true)
+            }
+        val payerStillPresent = current.payerId != null && latest.any { it.id == current.payerId }
+        val newPayerId =
+            if (payerStillPresent) current.payerId else pickDefaultPayerId(latest)
+
+        if (merged == current.participants && newPayerId == current.payerId) return
+
+        updateState { copy(participants = merged, payerId = newPayerId) }
+        recalculate()
     }
 
     private fun onSplitMethodChange(method: SplitMethod) {

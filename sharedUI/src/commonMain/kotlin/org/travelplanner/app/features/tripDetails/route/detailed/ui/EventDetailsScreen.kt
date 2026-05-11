@@ -83,8 +83,10 @@ import coil3.compose.AsyncImage
 import org.koin.core.parameter.parametersOf
 import org.travelplanner.app.core.FilePicker
 import org.travelplanner.app.core.ImagePicker
+import org.travelplanner.app.core.MapsLaunchMode
 import org.travelplanner.app.core.Validation
 import org.travelplanner.app.core.rememberClipboardManager
+import org.travelplanner.app.core.rememberExternalMapsLauncher
 import org.travelplanner.app.core.rememberResolvedImageUrl
 import org.travelplanner.app.features.profile.ui.GradientAvatar
 import org.travelplanner.app.features.profile.ui.avatarInitials
@@ -113,6 +115,7 @@ class EventDetailsScreen(
         val documents = state.files.filter { it.type == "DOCUMENT" }
 
         val clipboardManager = rememberClipboardManager()
+        val externalMapsLauncher = rememberExternalMapsLauncher()
         var copiedAddress by remember { mutableStateOf(false) }
         val snackbarHostState = remember { SnackbarHostState() }
 
@@ -515,18 +518,35 @@ class EventDetailsScreen(
                 }
 
                 item {
+                    val hasCoords = ev.latitude != 0.0 || ev.longitude != 0.0
                     Row(
                         Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         DSButton(
                             text = "Маршрут",
-                            onClick = { },
+                            onClick = {
+                                externalMapsLauncher.launch(
+                                    latitude = ev.latitude,
+                                    longitude = ev.longitude,
+                                    label = ev.title,
+                                    mode = MapsLaunchMode.DIRECTIONS,
+                                )
+                            },
+                            enabled = hasCoords,
                             modifier = Modifier.weight(1f),
                         )
                         DSButton(
                             text = "На карте",
-                            onClick = { },
+                            onClick = {
+                                externalMapsLauncher.launch(
+                                    latitude = ev.latitude,
+                                    longitude = ev.longitude,
+                                    label = ev.title,
+                                    mode = MapsLaunchMode.VIEW,
+                                )
+                            },
+                            enabled = hasCoords,
                             modifier = Modifier.weight(1f),
                             isOutline = true,
                         )

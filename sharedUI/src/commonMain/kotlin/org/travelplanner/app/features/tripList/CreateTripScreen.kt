@@ -51,6 +51,7 @@ import cafe.adriel.voyager.navigator.currentOrThrow
 import coil3.compose.AsyncImage
 import org.travelplanner.app.core.ImagePicker
 import org.travelplanner.app.core.TripUtils.toReadableDate
+import org.travelplanner.app.theme.CurrencyDropdown
 import org.travelplanner.app.theme.DSButton
 import org.travelplanner.app.theme.DSTextInput
 
@@ -212,19 +213,11 @@ class CreateTripScreen : Screen {
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
-                    DSTextInput(
-                        value = state.currency,
-                        onValueChange = {
-                            screenModel.handleIntent(
-                                CreateTripIntent.CurrencyChanged(
-                                    it,
-                                ),
-                            )
+                    CurrencyDropdown(
+                        selectedCode = state.currency,
+                        onSelect = {
+                            screenModel.handleIntent(CreateTripIntent.CurrencyChanged(it))
                         },
-                        placeholder = "JPY",
-                        label = "Валюта",
-                        isError = state.showErrors && state.currencyError != null,
-                        errorMessage = state.currencyError,
                         modifier = Modifier.weight(1f),
                     )
                     DSTextInput(

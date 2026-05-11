@@ -9,14 +9,13 @@ data class CreateTripState(
     val destination: String = "",
     val startDate: Long? = null,
     val endDate: Long? = null,
-    val currency: String = "JPY",
+    val currency: String = "RUB",
     val budget: String = "",
     val description: String = "",
     val photoBytes: ByteArray? = null,
     val showErrors: Boolean = false,
     val titleError: String? = null,
     val datesError: String? = null,
-    val currencyError: String? = null,
     val budgetError: String? = null,
 ) : UiState
 

@@ -48,12 +48,7 @@ class CreateTripScreenModel(
             }
 
             is CreateTripIntent.CurrencyChanged -> {
-                updateState {
-                    copy(
-                        currency = intent.value,
-                        currencyError = if (showErrors) computeCurrencyError(intent.value) else currencyError,
-                    )
-                }
+                updateState { copy(currency = intent.value) }
             }
 
             is CreateTripIntent.DatesChanged -> {
@@ -101,8 +96,6 @@ class CreateTripScreenModel(
             else -> null
         }
 
-    private fun computeCurrencyError(value: String): String? = if (!Validation.isValidCurrency(value)) "Укажите валюту" else null
-
     private fun computeBudgetError(value: String): String? =
         when {
             value.isBlank() -> null
@@ -116,18 +109,16 @@ class CreateTripScreenModel(
 
         val titleError = computeTitleError(s.title)
         val datesError = computeDatesError(s.startDate, s.endDate)
-        val currencyError = computeCurrencyError(s.currency)
         val budgetError = computeBudgetError(s.budget)
 
         val hasErrors =
-            titleError != null || datesError != null || currencyError != null || budgetError != null
+            titleError != null || datesError != null || budgetError != null
         if (hasErrors) {
             updateState {
                 copy(
                     showErrors = true,
                     titleError = titleError,
                     datesError = datesError,
-                    currencyError = currencyError,
                     budgetError = budgetError,
                 )
             }

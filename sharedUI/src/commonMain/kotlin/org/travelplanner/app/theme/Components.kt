@@ -25,6 +25,10 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -32,6 +36,12 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import org.travelplanner.app.core.CurrencyOption
+import org.travelplanner.app.core.SUPPORTED_CURRENCIES
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -263,6 +273,81 @@ fun DSTextInput(
         if (isError && errorMessage != null) {
             Spacer(modifier = Modifier.height(4.dp))
             Text(text = errorMessage, style = AppTypography.labelSmall, color = AppColors.Error)
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CurrencyDropdown(
+    selectedCode: String,
+    onSelect: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    label: String? = "Валюта",
+    options: List<CurrencyOption> = SUPPORTED_CURRENCIES,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val selected = options.firstOrNull { it.code.equals(selectedCode, ignoreCase = true) }
+    val displayValue =
+        if (selected != null) "${selected.symbol}  ${selected.code}" else selectedCode
+
+    Column(modifier = modifier) {
+        if (label != null) {
+            Text(text = label, style = AppTypography.bodyMedium, color = AppColors.TextTertiary)
+            Spacer(modifier = Modifier.height(6.dp))
+        }
+        ExposedDropdownMenuBox(
+            expanded = expanded,
+            onExpandedChange = { expanded = !expanded },
+        ) {
+            OutlinedTextField(
+                value = displayValue,
+                onValueChange = {},
+                readOnly = true,
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                modifier = Modifier.menuAnchor().fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors =
+                    OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = Color.White,
+                        unfocusedContainerColor = Color.White,
+                        focusedBorderColor = AppColors.Primary,
+                        unfocusedBorderColor = AppColors.Border,
+                    ),
+            )
+            ExposedDropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+                modifier = Modifier.background(Color.White),
+            ) {
+                options.forEach { option ->
+                    DropdownMenuItem(
+                        text = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    option.symbol,
+                                    style = AppTypography.bodyLarge,
+                                    modifier = Modifier.width(28.dp),
+                                )
+                                Text(
+                                    option.code,
+                                    style = AppTypography.bodyLarge.copy(fontWeight = FontWeight.Medium),
+                                    modifier = Modifier.width(56.dp),
+                                )
+                                Text(
+                                    option.name,
+                                    style = AppTypography.bodyMedium,
+                                    color = AppColors.TextSecondary,
+                                )
+                            }
+                        },
+                        onClick = {
+                            onSelect(option.code)
+                            expanded = false
+                        },
+                    )
+                }
+            }
         }
     }
 }

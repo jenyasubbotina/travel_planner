@@ -17,6 +17,7 @@ actual fun LocationPickerMapCanvas(
     initialLongitude: Double?,
     selectedLat: Double,
     selectedLon: Double,
+    cameraTarget: Pair<Double, Double>?,
     onTap: (lat: Double, lon: Double) -> Unit,
     modifier: Modifier,
 ) {

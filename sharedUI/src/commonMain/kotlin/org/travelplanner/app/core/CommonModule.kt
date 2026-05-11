@@ -53,6 +53,8 @@ val commonModule =
 
         single { ReverseGeocoder(json = get()) }
 
+        single { ForwardGeocoder(json = get()) }
+
         single {
             AuthTokenManager(
                 sessionStore = get(),

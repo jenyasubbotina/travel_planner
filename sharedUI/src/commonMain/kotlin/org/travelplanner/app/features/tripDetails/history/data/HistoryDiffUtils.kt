@@ -8,6 +8,7 @@ import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
+import org.travelplanner.app.core.currencySymbol
 import org.travelplanner.app.domain.Participant
 import org.travelplanner.app.features.tripDetails.expenses.humanSplitType
 
@@ -519,17 +520,6 @@ object HistoryDiffUtils {
             "VIEWER" -> "Наблюдатель"
             null -> null
             else -> role
-        }
-
-    private fun currencySymbol(currency: String): String =
-        when (currency.uppercase()) {
-            "JPY" -> "¥"
-            "USD" -> "$"
-            "EUR" -> "€"
-            "RUB" -> "₽"
-            "GBP" -> "£"
-            "CNY" -> "¥"
-            else -> "$currency "
         }
 
     private fun formatCurrency(

@@ -19,7 +19,6 @@ import com.yandex.mapkit.map.CameraPosition
 import com.yandex.mapkit.map.IconStyle
 import com.yandex.mapkit.map.InputListener
 import com.yandex.mapkit.map.Map
-import com.yandex.mapkit.map.PlacemarkMapObject
 import com.yandex.mapkit.mapview.MapView
 import com.yandex.runtime.image.ImageProvider
 
@@ -29,6 +28,7 @@ actual fun LocationPickerMapCanvas(
     initialLongitude: Double?,
     selectedLat: Double,
     selectedLon: Double,
+    cameraTarget: Pair<Double, Double>?,
     onTap: (lat: Double, lon: Double) -> Unit,
     modifier: Modifier,
 ) {
@@ -36,7 +36,11 @@ actual fun LocationPickerMapCanvas(
     val lifecycleOwner = LocalLifecycleOwner.current
 
     val mapView = remember { MapView(context) }
-    val collection = remember { mapView.mapWindow.map.mapObjects.addCollection() }
+    val collection =
+        remember {
+            mapView.mapWindow.map.mapObjects
+                .addCollection()
+        }
 
     val markerBitmap =
         remember {
@@ -63,11 +67,17 @@ actual fun LocationPickerMapCanvas(
     val inputListener =
         remember {
             object : InputListener {
-                override fun onMapTap(map: Map, point: Point) {
+                override fun onMapTap(
+                    map: Map,
+                    point: Point,
+                ) {
                     currentOnTap(point.latitude, point.longitude)
                 }
 
-                override fun onMapLongTap(map: Map, point: Point) = Unit
+                override fun onMapLongTap(
+                    map: Map,
+                    point: Point,
+                ) = Unit
             }
         }
 
@@ -79,11 +89,15 @@ actual fun LocationPickerMapCanvas(
                         MapKitFactory.getInstance().onStart()
                         mapView.onStart()
                     }
+
                     Lifecycle.Event.ON_STOP -> {
                         mapView.onStop()
                         MapKitFactory.getInstance().onStop()
                     }
-                    else -> Unit
+
+                    else -> {
+                        Unit
+                    }
                 }
             }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -102,6 +116,13 @@ actual fun LocationPickerMapCanvas(
         val zoom = if (initialLatitude != null && initialLongitude != null) 14f else 4f
         mapView.mapWindow.map.move(
             CameraPosition(Point(selectedLat, selectedLon), zoom, 0f, 0f),
+        )
+    }
+
+    LaunchedEffect(cameraTarget) {
+        val target = cameraTarget ?: return@LaunchedEffect
+        mapView.mapWindow.map.move(
+            CameraPosition(Point(target.first, target.second), 15f, 0f, 0f),
         )
     }
 
