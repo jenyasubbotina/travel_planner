@@ -27,6 +27,7 @@ class TripListScreenModel(
 ) : ReactiveScreenModel<TripListState, TripListIntent, TripListEffect>() {
     private val _searchQuery = MutableStateFlow("")
     private val _activeFilter = MutableStateFlow(TripFilter.ALL)
+    private val _sortOrder = MutableStateFlow(SortOrder.DESC)
 
     val networkState = globalSyncManager.networkState
 
@@ -36,12 +37,12 @@ class TripListScreenModel(
 
     override val state: StateFlow<TripListState> =
         combine(
-            _searchQuery,
+            combine(_searchQuery, _sortOrder, ::Pair),
             _activeFilter,
             repository.getTripsFlow(),
             outbox.observePendingCount(),
             participantRepository.getPendingInvitationsFlow(),
-        ) { query, filter, allTrips, pendingCount, pendingInvitations ->
+        ) { (query, sortOrder), filter, allTrips, pendingCount, pendingInvitations ->
             val searchedTrips =
                 if (query.isEmpty()) {
                     allTrips
@@ -73,13 +74,20 @@ class TripListScreenModel(
                     }
                 }
 
+            val sortedTrips =
+                when (sortOrder) {
+                    SortOrder.ASC -> filteredTrips.sortedBy { it.startDate?.toEpochMillis() ?: Long.MAX_VALUE }
+                    SortOrder.DESC -> filteredTrips.sortedByDescending { it.startDate?.toEpochMillis() ?: Long.MIN_VALUE }
+                }
+
             val pendingInvitationByTripId =
                 pendingInvitations.associate { it.tripId to it.invitationId }
 
             TripListState(
-                trips = filteredTrips,
+                trips = sortedTrips,
                 searchQuery = query,
                 activeFilter = filter,
+                sortOrder = sortOrder,
                 pendingCount = pendingCount,
                 pendingInvitationByTripId = pendingInvitationByTripId,
             )
@@ -120,6 +128,10 @@ class TripListScreenModel(
             }
 
             is TripListIntent.DismissMessage -> {}
+
+            is TripListIntent.ToggleSortOrder -> {
+                _sortOrder.value = if (_sortOrder.value == SortOrder.ASC) SortOrder.DESC else SortOrder.ASC
+            }
         }
     }
 

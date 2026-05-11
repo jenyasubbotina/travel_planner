@@ -260,8 +260,8 @@ class TripListScreen : Screen {
                         onClick = { screenModel.handleIntent(TripListIntent.FilterChange(TripFilter.ARCHIVED)) },
                     )
                     Spacer(Modifier.weight(1f))
-                    IconButton(onClick = { }) {
-                        Icon(Icons.Default.FilterList, contentDescription = "Filter")
+                    IconButton(onClick = { screenModel.handleIntent(TripListIntent.ToggleSortOrder) }) {
+                        Icon(Icons.Default.FilterList, contentDescription = "Сортировка")
                     }
                 }
 

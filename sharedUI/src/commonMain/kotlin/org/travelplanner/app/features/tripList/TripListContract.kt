@@ -7,10 +7,13 @@ import org.travelplanner.app.domain.Trip
 
 enum class TripFilter { ALL, UPCOMING, ARCHIVED }
 
+enum class SortOrder { ASC, DESC }
+
 data class TripListState(
     val trips: List<Trip> = emptyList(),
     val searchQuery: String = "",
     val activeFilter: TripFilter = TripFilter.ALL,
+    val sortOrder: SortOrder = SortOrder.DESC,
     val pendingCount: Long = 0L,
     val pendingInvitationByTripId: Map<String, String> = emptyMap(),
 ) : UiState
@@ -43,6 +46,8 @@ sealed interface TripListIntent : UiIntent {
     data object Refresh : TripListIntent
 
     data object DismissMessage : TripListIntent
+
+    data object ToggleSortOrder : TripListIntent
 }
 
 sealed interface TripListEffect : UiEffect {

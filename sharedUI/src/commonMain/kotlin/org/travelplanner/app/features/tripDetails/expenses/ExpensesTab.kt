@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -149,27 +150,35 @@ data class ExpensesTab(
                     modifier = Modifier.fillMaxWidth(),
                 )
 
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    DSTextChip(
-                        text = "Все",
-                        isActive = listState.activeCategory == "ALL",
-                        onClick = { listScreenModel.handleIntent(ExpensesIntent.CategorySelect("ALL")) },
-                    )
-                    DSTextChip(
-                        text = "🏠 Жильё",
-                        isActive = listState.activeCategory == "HOUSING",
-                        onClick = { listScreenModel.handleIntent(ExpensesIntent.CategorySelect("HOUSING")) },
-                    )
-                    DSTextChip(
-                        text = "🍱 Питание",
-                        isActive = listState.activeCategory == "FOOD",
-                        onClick = { listScreenModel.handleIntent(ExpensesIntent.CategorySelect("FOOD")) },
-                    )
-                    DSTextChip(
-                        text = "🚇 Транспорт",
-                        isActive = listState.activeCategory == "TRANSPORT",
-                        onClick = { listScreenModel.handleIntent(ExpensesIntent.CategorySelect("TRANSPORT")) },
-                    )
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    item {
+                        DSTextChip(
+                            text = "Все",
+                            isActive = listState.activeCategory == "ALL",
+                            onClick = { listScreenModel.handleIntent(ExpensesIntent.CategorySelect("ALL")) },
+                        )
+                    }
+                    item {
+                        DSTextChip(
+                            text = "🏠 Жильё",
+                            isActive = listState.activeCategory == "HOUSING",
+                            onClick = { listScreenModel.handleIntent(ExpensesIntent.CategorySelect("HOUSING")) },
+                        )
+                    }
+                    item {
+                        DSTextChip(
+                            text = "🍱 Питание",
+                            isActive = listState.activeCategory == "FOOD",
+                            onClick = { listScreenModel.handleIntent(ExpensesIntent.CategorySelect("FOOD")) },
+                        )
+                    }
+                    item {
+                        DSTextChip(
+                            text = "🚇 Транспорт",
+                            isActive = listState.activeCategory == "TRANSPORT",
+                            onClick = { listScreenModel.handleIntent(ExpensesIntent.CategorySelect("TRANSPORT")) },
+                        )
+                    }
                 }
 
                 Box(
