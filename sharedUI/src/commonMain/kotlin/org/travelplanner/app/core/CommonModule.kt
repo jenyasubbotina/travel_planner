@@ -4,6 +4,7 @@ import kotlinx.serialization.json.Json
 import org.koin.core.qualifier.named
 import org.koin.dsl.module
 import org.travelplanner.app.core.auth.AuthTokenManager
+import org.travelplanner.app.core.preferences.AppPreferencesRepository
 import org.travelplanner.app.data.BackgroundDrainScheduler
 import org.travelplanner.app.data.DeltaSyncCoordinator
 import org.travelplanner.app.data.EventRepository
@@ -66,6 +67,8 @@ val commonModule =
 
         single { UserSession(authTokenManager = get()) }
 
+        single { AppPreferencesRepository(store = get(named("appPrefs"))) }
+
         single { SyncTrigger() }
 
         single { NetworkStateHolder() }
@@ -84,7 +87,7 @@ val commonModule =
                     }
                 },
                 httpClientConfig = getOrNull(),
-                globalNotifier = get()
+                globalNotifier = get(),
             )
         }
 
@@ -328,5 +331,5 @@ val commonModule =
                 userSession = get(),
             )
         }
-        factory { params -> ProfileScreenModel(get()) }
+        factory { ProfileScreenModel(get(), get(), get(named("appVersion"))) }
     }

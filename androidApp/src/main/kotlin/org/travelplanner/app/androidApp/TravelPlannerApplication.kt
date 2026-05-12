@@ -26,7 +26,6 @@ import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.startKoin
 import org.koin.core.qualifier.named
 import org.koin.dsl.module
-import org.travelplanner.app.androidApp.BuildConfig
 import org.travelplanner.app.core.DriverFactory
 import org.travelplanner.app.core.GatewayConfig
 import org.travelplanner.app.core.GatewayConfigManager
@@ -35,6 +34,8 @@ import org.travelplanner.app.core.TripApiService
 import org.travelplanner.app.core.auth.AuthSession
 import org.travelplanner.app.core.auth.AuthTokenManager
 import org.travelplanner.app.core.commonModule
+import org.travelplanner.app.core.preferences.AppPreferences
+import org.travelplanner.app.core.preferences.AppPreferencesRepository
 import org.travelplanner.app.data.BackgroundDrainScheduler
 import org.travelplanner.app.data.GlobalSyncManager
 import org.travelplanner.app.data.NetworkState
@@ -73,6 +74,7 @@ class TripApplication : Application() {
 
         val api: TripApiService = get()
         val authTokenManager: AuthTokenManager = get()
+        get<AppPreferencesRepository>()
 
         CoroutineScope(Dispatchers.IO).launch {
             authTokenManager.session
@@ -159,6 +161,14 @@ val androidModule =
             val file = Path("${ctx.filesDir.path}/saved_accounts.json")
             storeOf(file = file, default = emptyList())
         }
+
+        single<KStore<AppPreferences>>(named("appPrefs")) {
+            val ctx = androidContext()
+            val file = Path("${ctx.filesDir.path}/app_prefs.json")
+            storeOf(file = file, default = AppPreferences())
+        }
+
+        single<String>(named("appVersion")) { BuildConfig.VERSION_NAME }
 
         single {
             val ctx = androidContext()

@@ -8,6 +8,7 @@ import org.travelplanner.app.core.DriverFactory
 import org.travelplanner.app.core.GatewayConfig
 import org.travelplanner.app.core.GatewayConfigManager
 import org.travelplanner.app.core.auth.AuthSession
+import org.travelplanner.app.core.preferences.AppPreferences
 import org.travelplanner.app.data.BackgroundDrainScheduler
 import org.travelplanner.app.data.OutboxAttachmentStorage
 
@@ -32,6 +33,12 @@ val webModule =
         single<KStore<List<AuthSession>>>(named("accounts")) {
             storeOf(key = "travel_planner_saved_accounts", default = emptyList())
         }
+
+        single<KStore<AppPreferences>>(named("appPrefs")) {
+            storeOf(key = "travel_planner_app_prefs", default = AppPreferences())
+        }
+
+        single<String>(named("appVersion")) { "1.0.0" }
 
         single {
             GatewayConfigManager(

@@ -29,6 +29,7 @@ import org.travelplanner.app.core.GatewayConfigManager
 import org.travelplanner.app.core.UserSession
 import org.travelplanner.app.core.auth.AuthSession
 import org.travelplanner.app.core.commonModule
+import org.travelplanner.app.core.preferences.AppPreferences
 import org.travelplanner.app.data.BackgroundDrainScheduler
 import org.travelplanner.app.data.OutboxAttachmentStorage
 import org.travelplanner.app.features.tripList.TripListScreen
@@ -65,6 +66,17 @@ val desktopModule =
             val path = File(dir, "saved_accounts.json").absolutePath
             storeOf(file = Path(path), default = emptyList())
         }
+
+        single<KStore<AppPreferences>>(named("appPrefs")) {
+            val home = System.getProperty("user.home")
+            val dir = File(home, ".travel-planner")
+            dir.mkdirs()
+
+            val path = File(dir, "app_prefs.json").absolutePath
+            storeOf(file = Path(path), default = AppPreferences())
+        }
+
+        single<String>(named("appVersion")) { "1.0.0" }
 
         single {
             val home = System.getProperty("user.home")

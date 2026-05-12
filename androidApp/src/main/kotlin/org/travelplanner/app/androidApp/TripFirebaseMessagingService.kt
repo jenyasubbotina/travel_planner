@@ -14,12 +14,14 @@ import org.koin.android.ext.android.inject
 import org.travelplanner.app.core.RegisterDeviceRequest
 import org.travelplanner.app.core.TripApiService
 import org.travelplanner.app.core.auth.AuthTokenManager
+import org.travelplanner.app.core.preferences.AppPreferencesRepository
 import org.travelplanner.app.data.GlobalSyncManager
 
 class TripFirebaseMessagingService : FirebaseMessagingService() {
     private val globalSyncManager: GlobalSyncManager by inject()
     private val api: TripApiService by inject()
     private val authTokenManager: AuthTokenManager by inject()
+    private val appPreferencesRepository: AppPreferencesRepository by inject()
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     override fun onMessageReceived(message: RemoteMessage) {
@@ -55,6 +57,8 @@ class TripFirebaseMessagingService : FirebaseMessagingService() {
         invitationId: String,
         tripTitle: String?,
     ) {
+        if (!appPreferencesRepository.snapshot.notificationsEnabled) return
+
         val title = message.notification?.title ?: "Приглашение в поездку"
         val body =
             tripTitle?.let { "Вас пригласили на планирование \"$it\"" }

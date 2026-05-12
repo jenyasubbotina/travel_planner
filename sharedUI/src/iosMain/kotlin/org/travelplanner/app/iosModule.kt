@@ -1,8 +1,8 @@
 package org.travelplanner.app
 
-import kotlinx.cinterop.ExperimentalForeignApi
 import io.github.xxfast.kstore.KStore
 import io.github.xxfast.kstore.file.storeOf
+import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.io.files.Path
 import org.koin.core.context.startKoin
 import org.koin.core.qualifier.named
@@ -12,8 +12,10 @@ import org.travelplanner.app.core.GatewayConfig
 import org.travelplanner.app.core.GatewayConfigManager
 import org.travelplanner.app.core.auth.AuthSession
 import org.travelplanner.app.core.commonModule
+import org.travelplanner.app.core.preferences.AppPreferences
 import org.travelplanner.app.data.BackgroundDrainScheduler
 import org.travelplanner.app.data.OutboxAttachmentStorage
+import platform.Foundation.NSBundle
 import platform.Foundation.NSDocumentDirectory
 import platform.Foundation.NSFileManager
 import platform.Foundation.NSUserDomainMask
@@ -54,6 +56,19 @@ val iosModule =
                 file = Path("${iosDocumentsPath()}/saved_accounts.json"),
                 default = emptyList(),
             )
+        }
+
+        single<KStore<AppPreferences>>(named("appPrefs")) {
+            storeOf(
+                file = Path("${iosDocumentsPath()}/app_prefs.json"),
+                default = AppPreferences(),
+            )
+        }
+
+        single<String>(named("appVersion")) {
+            NSBundle.mainBundle.infoDictionary
+                ?.get("CFBundleShortVersionString") as? String
+                ?: "1.0.0"
         }
 
         single {

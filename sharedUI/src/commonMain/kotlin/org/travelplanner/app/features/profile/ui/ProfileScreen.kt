@@ -1,22 +1,25 @@
 package org.travelplanner.app.features.profile.ui
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.Logout
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.*
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.outlined.DownloadForOffline
+import androidx.compose.material.icons.outlined.HelpOutline
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Language
+import androidx.compose.material.icons.outlined.LightMode
+import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -34,10 +37,13 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.travelplanner.app.core.AppUser
 import org.travelplanner.app.core.UserSession
+import org.travelplanner.app.core.preferences.AppPreferencesRepository
 import org.travelplanner.app.features.tripList.TripListScreen
 
 class ProfileScreenModel(
     private val userSession: UserSession,
+    private val prefs: AppPreferencesRepository,
+    val appVersion: String,
 ) : ScreenModel {
     val currentUser =
         userSession.currentUser
@@ -47,12 +53,22 @@ class ProfileScreenModel(
         userSession.availableUsers
             .stateIn(screenModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val preferences = prefs.state
+
     fun logout() {
         screenModelScope.launch { userSession.logout() }
     }
 
     fun switchUser(userId: String) {
         userSession.switchUser(userId)
+    }
+
+    fun setNotificationsEnabled(value: Boolean) {
+        screenModelScope.launch { prefs.setNotificationsEnabled(value) }
+    }
+
+    fun setLightTheme(value: Boolean) {
+        screenModelScope.launch { prefs.setLightTheme(value) }
     }
 }
 
@@ -64,16 +80,11 @@ class ProfileScreen : Screen {
         val navigator = LocalNavigator.currentOrThrow
         val currentUser by screenModel.currentUser.collectAsState()
         val availableUsers by screenModel.availableUsers.collectAsState()
+        val prefs by screenModel.preferences.collectAsState()
 
         val userName = currentUser?.name ?: "Ваше Имя"
         val userEmail = currentUser?.email ?: "you@example.com"
         val otherAccounts = availableUsers.filter { it.id != currentUser?.id }
-
-        var isDarkMode by remember { mutableStateOf(false) }
-        var isPushEnabled by remember { mutableStateOf(false) }
-        var isEmailEnabled by remember { mutableStateOf(true) }
-        var isRemindersEnabled by remember { mutableStateOf(false) }
-        var isOfflineMode by remember { mutableStateOf(true) }
 
         val backgroundColor = Color(0xFFF9FAFB)
 
@@ -141,8 +152,8 @@ class ProfileScreen : Screen {
                                 Text(userEmail, fontSize = 14.sp, color = Color(0xFF6B7280))
                             }
 
-                            TextButton(onClick = { }) {
-                                Text("Изменить", color = Color(0xFF155DFC), fontSize = 14.sp)
+                            TextButton(onClick = { }, enabled = false) {
+                                Text("Изменить", fontSize = 14.sp)
                             }
                         }
                     }
@@ -165,13 +176,6 @@ class ProfileScreen : Screen {
                                     DividerItem()
                                 }
                             }
-                            DividerItem()
-                            SettingsActionRow(
-                                icon = Icons.Outlined.PersonAdd,
-                                title = "Добавить аккаунт",
-                                subtitle = "Войти с другим email",
-                                onClick = { screenModel.logout() },
-                            )
                         }
                     }
                 }
@@ -187,19 +191,12 @@ class ProfileScreen : Screen {
                             onClick = { },
                         )
                         DividerItem()
-                        SettingsActionRow(
-                            icon = Icons.Outlined.Public,
-                            title = "Валюта по умолчанию",
-                            subtitle = "¥ Юани",
-                            onClick = { },
-                        )
-                        DividerItem()
                         SettingsToggleRow(
-                            icon = Icons.Outlined.DarkMode,
-                            title = "Тёмная тема",
-                            subtitle = "Автоматически",
-                            isChecked = isDarkMode,
-                            onCheckedChange = { isDarkMode = it },
+                            icon = Icons.Outlined.LightMode,
+                            title = "Светлая тема",
+                            isChecked = prefs.lightTheme,
+                            onCheckedChange = { screenModel.setLightTheme(it) },
+                            enabled = false,
                         )
                     }
                 }
@@ -212,24 +209,8 @@ class ProfileScreen : Screen {
                             icon = Icons.Outlined.Notifications,
                             title = "Push-уведомления",
                             subtitle = "О новых расходах и событиях",
-                            isChecked = isPushEnabled,
-                            onCheckedChange = { isPushEnabled = it },
-                        )
-                        DividerItem()
-                        SettingsToggleRow(
-                            icon = Icons.Outlined.Email,
-                            title = "Email-уведомления",
-                            subtitle = "Еженедельная сводка",
-                            isChecked = isEmailEnabled,
-                            onCheckedChange = { isEmailEnabled = it },
-                        )
-                        DividerItem()
-                        SettingsToggleRow(
-                            icon = Icons.Outlined.NotificationsActive,
-                            title = "Напоминания о долгах",
-                            subtitle = "Раз в неделю",
-                            isChecked = isRemindersEnabled,
-                            onCheckedChange = { isRemindersEnabled = it },
+                            isChecked = prefs.notificationsEnabled,
+                            onCheckedChange = { screenModel.setNotificationsEnabled(it) },
                         )
                     }
                 }
@@ -242,8 +223,9 @@ class ProfileScreen : Screen {
                             icon = Icons.Outlined.DownloadForOffline,
                             title = "Офлайн-режим",
                             subtitle = "Работа без интернета",
-                            isChecked = isOfflineMode,
-                            onCheckedChange = { isOfflineMode = it },
+                            isChecked = true,
+                            onCheckedChange = { },
+                            enabled = false,
                         )
                     }
                 }
@@ -261,7 +243,8 @@ class ProfileScreen : Screen {
                         SettingsActionRow(
                             icon = Icons.Outlined.Info,
                             title = "О приложении",
-                            subtitle = "Версия 1.0.0",
+                            subtitle = "Версия ${screenModel.appVersion}",
+                            showChevron = false,
                             onClick = { },
                         )
                     }
@@ -281,35 +264,13 @@ class ProfileScreen : Screen {
                 }
 
                 item {
-                    SectionHeader("ОПАСНАЯ ЗОНА", color = Color(0xFFDC2626))
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Card(
-                        shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFFFEF2F2)),
-                        border = BorderStroke(1.dp, Color(0xFFFECACA)),
-                        elevation = CardDefaults.cardElevation(0.dp),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        SettingsActionRow(
-                            icon = Icons.Outlined.DeleteOutline,
-                            title = "Удалить аккаунт",
-                            subtitle = "Все данные будут безвозвратно удалены",
-                            iconTint = Color(0xFFDC2626),
-                            titleColor = Color(0xFFDC2626),
-                            subtitleColor = Color(0xFFDC2626),
-                            onClick = { },
-                        )
-                    }
-                }
-
-                item {
                     Spacer(modifier = Modifier.height(16.dp))
                     Column(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
                         Text(
-                            text = "Travel Planner v1.0.0\nMade with ❤️ for travelers",
+                            text = "Travel Planner v${screenModel.appVersion}\nMade with ❤️ for travelers",
                             textAlign = TextAlign.Center,
                             fontSize = 14.sp,
                             color = Color(0xFF6B7280),
@@ -366,6 +327,7 @@ fun SettingsActionRow(
     iconTint: Color = Color(0xFF374151),
     titleColor: Color = Color(0xFF111827),
     subtitleColor: Color = Color(0xFF6B7280),
+    showChevron: Boolean = true,
     onClick: () -> Unit,
 ) {
     Row(
@@ -390,11 +352,13 @@ fun SettingsActionRow(
                 Text(subtitle, fontSize = 13.sp, color = subtitleColor)
             }
         }
-        Icon(
-            imageVector = Icons.Default.ChevronRight,
-            contentDescription = null,
-            tint = if (iconTint == Color(0xFFDC2626)) iconTint else Color(0xFF9CA3AF),
-        )
+        if (showChevron) {
+            Icon(
+                imageVector = Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = Color(0xFF9CA3AF),
+            )
+        }
     }
 }
 
@@ -405,13 +369,19 @@ fun SettingsToggleRow(
     subtitle: String? = null,
     isChecked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
+    enabled: Boolean = true,
 ) {
     Row(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .clickable { onCheckedChange(!isChecked) }
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .then(
+                    if (enabled) {
+                        Modifier.clickable { onCheckedChange(!isChecked) }
+                    } else {
+                        Modifier
+                    },
+                ).padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
@@ -431,6 +401,7 @@ fun SettingsToggleRow(
         Switch(
             checked = isChecked,
             onCheckedChange = onCheckedChange,
+            enabled = enabled,
             colors =
                 SwitchDefaults.colors(
                     checkedThumbColor = Color.White,
