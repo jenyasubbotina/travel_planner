@@ -9,11 +9,13 @@ import io.ktor.client.plugins.logging.LogLevel
 import io.ktor.client.plugins.logging.Logger
 import io.ktor.client.plugins.logging.Logging
 import io.ktor.client.plugins.plugin
+import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
+import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
@@ -29,6 +31,9 @@ class AuthRequestException(
     val statusCode: Int,
     val body: String,
 ) : Exception("Auth request failed: $statusCode — $body")
+
+private const val EMAIL_NOT_VERIFIED_BODY =
+    """{"code":"EMAIL_NOT_VERIFIED","message":"Email not verified"}"""
 
 class AuthTokenManager(
     private val sessionStore: KStore<AuthSession>,
@@ -189,9 +194,54 @@ class AuthTokenManager(
         }
         val authResponse: AuthResponse = response.body()
         val protectedPassword = runCatching { encryptSecret(password) }.getOrNull()
+        if (!authResponse.user.emailVerified) {
+            println("[auth] login rejected: email not verified for ${authResponse.user.email}")
+            throw AuthRequestException(403, EMAIL_NOT_VERIFIED_BODY)
+        }
         val session = authResponse.toSession().copy(password = protectedPassword)
         saveSession(session)
         return session
+    }
+
+    suspend fun validateStoredSession(): Boolean {
+        if (_session.value == null) return true
+        val user = fetchCurrentUser() ?: return true
+        if (user.emailVerified) return true
+        println("[auth] stored session rejected: email not verified for ${user.email}")
+        clearSession()
+        return false
+    }
+
+    suspend fun fetchCurrentUser(): UserResponse? {
+        val token = _session.value?.accessToken ?: return null
+        return fetchCurrentUserWithToken(token, retryOnUnauthorized = true)
+    }
+
+    private suspend fun fetchCurrentUserWithToken(
+        token: String,
+        retryOnUnauthorized: Boolean,
+    ): UserResponse? {
+        try {
+            var response =
+                authClient.get("${baseUrlProvider()}/api/v1/me") {
+                    header("Authorization", "Bearer $token")
+                }
+            if (response.status == HttpStatusCode.Unauthorized && retryOnUnauthorized) {
+                val newToken = refreshAccessToken() ?: return null
+                response =
+                    authClient.get("${baseUrlProvider()}/api/v1/me") {
+                        header("Authorization", "Bearer $newToken")
+                    }
+            }
+            if (!response.status.isSuccess()) {
+                println("[auth] fetchCurrentUser failed: HTTP ${response.status.value}")
+                return null
+            }
+            return response.body()
+        } catch (e: Exception) {
+            println("[auth] fetchCurrentUser exception: ${e::class.simpleName}: ${e.message}")
+            return null
+        }
     }
 
     suspend fun refreshAccessToken(): String? =

@@ -24,7 +24,7 @@ data class AuthResponse(
 
 @Serializable
 data class RegisterPendingResponse(
-    val message: String,
+    val message: String? = null,
     val user: UserResponse,
 )
 

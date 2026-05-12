@@ -46,8 +46,10 @@ class UserSession(
         CoroutineScope(AppBackground).launch {
             authTokenManager.loadAccounts()
             authTokenManager.loadSession()
-            val session = authTokenManager.session.value
-            if (session != null) {
+            if (authTokenManager.session.value != null && !authTokenManager.validateStoredSession()) {
+                _authError.value = EMAIL_NOT_VERIFIED_MESSAGE
+            }
+            authTokenManager.session.value?.let { session ->
                 _currentUser.value =
                     AppUser(
                         id = session.userId,
@@ -100,7 +102,7 @@ class UserSession(
             val pending = authTokenManager.register(email, displayName, password)
             _registrationPending.value =
                 RegistrationPending(
-                    serverMessage = pending.message,
+                    serverMessage = pending.message.orEmpty(),
                     email = pending.user.email,
                 )
         } catch (e: Exception) {
@@ -137,8 +139,7 @@ class UserSession(
         val msg = e.message.orEmpty()
         return when {
             "INVALID_CREDENTIALS" in msg -> "Неверный email или пароль"
-            "EMAIL_NOT_VERIFIED" in msg ->
-                "Подтвердите email: откройте ссылку из письма, затем войдите снова"
+            "EMAIL_NOT_VERIFIED" in msg -> EMAIL_NOT_VERIFIED_MESSAGE
             "EMAIL_ALREADY_EXISTS" in msg -> "Этот email уже зарегистрирован"
             "VALIDATION_ERROR" in msg -> "Проверьте корректность данных"
             "INVALID_REFRESH_TOKEN" in msg -> "Сессия истекла, войдите заново"
@@ -173,5 +174,10 @@ class UserSession(
 
     fun clearRegistrationPending() {
         _registrationPending.value = null
+    }
+
+    private companion object {
+        const val EMAIL_NOT_VERIFIED_MESSAGE =
+            "Подтвердите email: откройте ссылку из письма, затем войдите снова"
     }
 }
