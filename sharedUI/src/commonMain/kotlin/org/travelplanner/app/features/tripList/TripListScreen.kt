@@ -45,7 +45,6 @@ import org.travelplanner.app.core.TripUtils.formatNumber
 import org.travelplanner.app.core.TripUtils.isoToEpochMillis
 import org.travelplanner.app.core.TripUtils.pluralizeDays
 import org.travelplanner.app.core.UserSession
-import org.travelplanner.app.core.auth.AuthTokenManager
 import org.travelplanner.app.core.rememberResolvedImageUrl
 import org.travelplanner.app.data.GlobalSyncManager
 import org.travelplanner.app.data.NetworkState
@@ -71,7 +70,6 @@ class TripListScreen : Screen {
         val userSession = koinInject<UserSession>()
         val globalSyncManager = koinInject<GlobalSyncManager>()
         val gatewayManager = koinInject<GatewayConfigManager>()
-        val authTokenManager = koinInject<AuthTokenManager>()
         val networkState by globalSyncManager.networkState.collectAsState()
         val retryCountdown by globalSyncManager.retryCountdown.collectAsState()
         val gatewayConfig by gatewayManager.config.collectAsState()
@@ -110,7 +108,7 @@ class TripListScreen : Screen {
                             onConfigSave = { newConfig ->
                                 scope.launch {
                                     if (newConfig.address != gatewayConfig.address) {
-                                        authTokenManager.logout()
+                                        globalSyncManager.logout()
                                     }
                                     gatewayManager.updateConfig(newConfig)
                                 }

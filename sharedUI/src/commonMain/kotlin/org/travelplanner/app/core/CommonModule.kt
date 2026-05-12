@@ -331,5 +331,5 @@ val commonModule =
                 userSession = get(),
             )
         }
-        factory { ProfileScreenModel(get(), get(), get(named("appVersion"))) }
+        factory { ProfileScreenModel(get(), get(), get(), get(named("appVersion"))) }
     }

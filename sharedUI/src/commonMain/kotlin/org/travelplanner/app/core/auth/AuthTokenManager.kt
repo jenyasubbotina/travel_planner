@@ -106,12 +106,29 @@ class AuthTokenManager(
         _savedAccounts.value = accountsStore.get() ?: emptyList()
     }
 
-    suspend fun switchAccount(userId: String): AuthSession =
-        refreshMutex.withLock {
-            val account =
-                _savedAccounts.value.find { it.userId == userId }
-                    ?: throw AuthRequestException(0, "ACCOUNT_NOT_FOUND")
+    suspend fun switchAccount(userId: String): AuthSession {
+        val account =
+            _savedAccounts.value.find { it.userId == userId }
+                ?: throw AuthRequestException(0, "ACCOUNT_NOT_FOUND")
 
+        val storedPassword = account.password?.let { runCatching { decryptSecret(it) }.getOrNull() }
+        if (storedPassword != null) {
+            return try {
+                login(account.email, storedPassword)
+            } catch (e: AuthRequestException) {
+                if (e.statusCode == 401 || e.statusCode == 403) removeAccount(userId)
+                throw e
+            }
+        }
+
+        return refreshIntoAccount(account, userId)
+    }
+
+    private suspend fun refreshIntoAccount(
+        account: AuthSession,
+        userId: String,
+    ): AuthSession =
+        refreshMutex.withLock {
             val response =
                 authClient.post("${baseUrlProvider()}/api/v1/auth/refresh") {
                     contentType(ContentType.Application.Json)
@@ -120,7 +137,7 @@ class AuthTokenManager(
             val status = response.status
             if (!status.isSuccess()) {
                 val errorText = runCatching { response.bodyAsText() }.getOrNull().orEmpty()
-                println("[auth] quick login failed: HTTP ${status.value} $errorText")
+                println("[auth] quick login (refresh) failed: HTTP ${status.value} $errorText")
                 if (status.value == 401 || status.value == 403) {
                     removeAccount(userId)
                 }
@@ -171,7 +188,8 @@ class AuthTokenManager(
             throw AuthRequestException(status.value, errorText)
         }
         val authResponse: AuthResponse = response.body()
-        val session = authResponse.toSession()
+        val protectedPassword = runCatching { encryptSecret(password) }.getOrNull()
+        val session = authResponse.toSession().copy(password = protectedPassword)
         saveSession(session)
         return session
     }

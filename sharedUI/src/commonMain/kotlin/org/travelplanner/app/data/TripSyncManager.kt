@@ -3,7 +3,6 @@ package org.travelplanner.app.data
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
-import org.travelplanner.app.AppBackground
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
@@ -15,6 +14,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
+import org.travelplanner.app.AppBackground
 import org.travelplanner.app.core.DeltaResponse
 import org.travelplanner.app.core.HistoryEntryResponse
 import org.travelplanner.app.core.PointCommentResponse
@@ -111,14 +111,7 @@ class GlobalSyncManager(
                     if (user != null) {
                         syncJob = scope.launch { startSyncLoop() }
                     } else {
-                        val deviceId = api.currentDeviceId
-                        if (deviceId != null) {
-                            try {
-                                api.removeDevice(deviceId)
-                            } catch (_: Exception) {
-                            }
-                            api.currentDeviceId = null
-                        }
+                        api.currentDeviceId = null
                         try {
                             outbox.deleteAll()
                             db.syncCursorsQueries.deleteAllCursors()
@@ -138,6 +131,15 @@ class GlobalSyncManager(
                     }
                 }
         }
+    }
+
+    suspend fun logout() {
+        val deviceId = api.currentDeviceId
+        if (deviceId != null) {
+            runCatching { api.removeDevice(deviceId) }
+            api.currentDeviceId = null
+        }
+        userSession.logout()
     }
 
     private suspend fun startSyncLoop() {

@@ -38,10 +38,12 @@ import kotlinx.coroutines.launch
 import org.travelplanner.app.core.AppUser
 import org.travelplanner.app.core.UserSession
 import org.travelplanner.app.core.preferences.AppPreferencesRepository
+import org.travelplanner.app.data.GlobalSyncManager
 import org.travelplanner.app.features.tripList.TripListScreen
 
 class ProfileScreenModel(
     private val userSession: UserSession,
+    private val globalSyncManager: GlobalSyncManager,
     private val prefs: AppPreferencesRepository,
     val appVersion: String,
 ) : ScreenModel {
@@ -56,7 +58,7 @@ class ProfileScreenModel(
     val preferences = prefs.state
 
     fun logout() {
-        screenModelScope.launch { userSession.logout() }
+        screenModelScope.launch { globalSyncManager.logout() }
     }
 
     fun switchUser(userId: String) {
