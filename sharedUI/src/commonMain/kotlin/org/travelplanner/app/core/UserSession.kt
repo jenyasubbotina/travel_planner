@@ -150,7 +150,16 @@ class UserSession(
 
     fun switchUser(userId: String) {
         CoroutineScope(AppBackground).launch {
-            authTokenManager.switchAccount(userId)
+            _authError.value = null
+            _isAuthenticating.value = true
+            try {
+                authTokenManager.switchAccount(userId)
+            } catch (e: Exception) {
+                println("[auth] quick login failed: ${e::class.simpleName}: ${e.message}")
+                _authError.value = humanizeAuthError(e)
+            } finally {
+                _isAuthenticating.value = false
+            }
         }
     }
 

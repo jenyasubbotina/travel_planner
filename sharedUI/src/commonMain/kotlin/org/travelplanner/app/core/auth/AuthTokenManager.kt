@@ -106,10 +106,35 @@ class AuthTokenManager(
         _savedAccounts.value = accountsStore.get() ?: emptyList()
     }
 
-    suspend fun switchAccount(userId: String) {
-        val account = _savedAccounts.value.find { it.userId == userId } ?: return
-        saveSession(account)
-    }
+    suspend fun switchAccount(userId: String): AuthSession =
+        refreshMutex.withLock {
+            val account =
+                _savedAccounts.value.find { it.userId == userId }
+                    ?: throw AuthRequestException(0, "ACCOUNT_NOT_FOUND")
+
+            val response =
+                authClient.post("${baseUrlProvider()}/api/v1/auth/refresh") {
+                    contentType(ContentType.Application.Json)
+                    setBody(RefreshTokenRequest(account.refreshToken))
+                }
+            val status = response.status
+            if (!status.isSuccess()) {
+                val errorText = runCatching { response.bodyAsText() }.getOrNull().orEmpty()
+                println("[auth] quick login failed: HTTP ${status.value} $errorText")
+                if (status.value == 401 || status.value == 403) {
+                    removeAccount(userId)
+                }
+                throw AuthRequestException(status.value, errorText)
+            }
+            val refreshResponse: RefreshTokenResponse = response.body()
+            val session =
+                account.copy(
+                    accessToken = refreshResponse.accessToken,
+                    refreshToken = refreshResponse.refreshToken,
+                )
+            saveSession(session)
+            session
+        }
 
     suspend fun register(
         email: String,
@@ -208,6 +233,13 @@ class AuthTokenManager(
     private suspend fun clearSession() {
         sessionStore.set(null)
         _session.value = null
+    }
+
+    private suspend fun removeAccount(userId: String) {
+        accountsStore.update { current ->
+            (current ?: emptyList()).filter { it.userId != userId }
+        }
+        _savedAccounts.value = accountsStore.get() ?: emptyList()
     }
 
     private fun AuthResponse.toSession() =
