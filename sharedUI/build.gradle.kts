@@ -51,6 +51,9 @@ kotlin {
             implementation(libs.kotlinx.datetime)
             implementation(libs.kstore)
 
+            implementation(libs.coil)
+            implementation(libs.coil.network.ktor)
+
             implementation("org.jetbrains.compose.material:material-icons-core:1.7.3")
             implementation("org.jetbrains.compose.material:material-icons-extended:1.7.3")
 
@@ -78,8 +81,6 @@ kotlin {
             implementation(libs.androidx.work.runtime.ktx)
 
             implementation(libs.yandex.mapkit)
-            implementation(libs.coil)
-            implementation(libs.coil.network.ktor)
         }
 
         jvmMain.dependencies {

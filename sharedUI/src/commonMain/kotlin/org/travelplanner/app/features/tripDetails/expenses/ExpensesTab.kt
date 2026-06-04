@@ -31,15 +31,12 @@ import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Divider
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -76,6 +73,7 @@ import org.travelplanner.app.features.tripDetails.history.ui.ExpenseMergePicker
 import org.travelplanner.app.features.tripDetails.history.ui.ExpensePendingProposalScreen
 import org.travelplanner.app.features.tripDetails.history.ui.MergeRow
 import org.travelplanner.app.features.tripDetails.route.ui.getCategoryEmoji
+import org.travelplanner.app.theme.DSBottomSheet
 import org.travelplanner.app.theme.DSTextChip
 import org.travelplanner.app.theme.DSTextInput
 import kotlin.time.Clock
@@ -90,7 +88,6 @@ data class ExpensesTab(
             return remember { TabOptions(index = 2u, title = "Расходы", icon = icon) }
         }
 
-    @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     override fun Content() {
         val parentNavigator = LocalNavigator.currentOrThrow.parent!!
@@ -106,7 +103,6 @@ data class ExpensesTab(
 
         var conflictTarget by remember { mutableStateOf<ConflictTarget?>(null) }
         var mergeTarget by remember { mutableStateOf<ConflictTarget?>(null) }
-        val addExpenseSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
         val snackbarHostState = remember { SnackbarHostState() }
         val scope = rememberCoroutineScope()
@@ -266,11 +262,9 @@ data class ExpensesTab(
             }
 
             if (isAddSheetVisible) {
-                ModalBottomSheet(
+                DSBottomSheet(
                     onDismissRequest = { isAddSheetVisible = false },
-                    sheetState = addExpenseSheetState,
-                    containerColor = Color.Transparent,
-                    dragHandle = null,
+                    skipPartiallyExpanded = true,
                 ) {
                     ExpenseFormSheet(
                         screenModel = formScreenModel,
@@ -286,10 +280,8 @@ data class ExpensesTab(
 
             val activeConflict = conflictTarget
             if (activeConflict != null) {
-                ModalBottomSheet(
+                DSBottomSheet(
                     onDismissRequest = { conflictTarget = null },
-                    containerColor = Color.Transparent,
-                    dragHandle = null,
                 ) {
                     val expenseRemoteId = activeConflict.expense.id
 
@@ -341,10 +333,8 @@ data class ExpensesTab(
 
             val activeMerge = mergeTarget
             if (activeMerge != null) {
-                ModalBottomSheet(
+                DSBottomSheet(
                     onDismissRequest = { mergeTarget = null },
-                    containerColor = Color.Transparent,
-                    dragHandle = null,
                 ) {
                     val rows: List<MergeRow> =
                         activeMerge.payloads.toMergeRows(

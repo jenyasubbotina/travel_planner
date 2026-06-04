@@ -32,9 +32,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -75,13 +73,13 @@ import org.travelplanner.app.features.profile.ui.GradientAvatar
 import org.travelplanner.app.features.profile.ui.avatarInitials
 import org.travelplanner.app.features.tripDetails.expenses.getCategoryEmoji
 import org.travelplanner.app.features.tripDetails.expenses.getCategoryName
+import org.travelplanner.app.theme.DSBottomSheet
 import org.travelplanner.app.theme.DSLoadingOverlay
 
 data class ExpenseDetailsScreen(
     val expenseId: String,
     val tripId: String,
 ) : Screen {
-    @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     override fun Content() {
         val navigator = LocalNavigator.currentOrThrow
@@ -135,10 +133,8 @@ data class ExpenseDetailsScreen(
         }
 
         if (isEditSheetVisible) {
-            ModalBottomSheet(
+            DSBottomSheet(
                 onDismissRequest = { isEditSheetVisible = false },
-                containerColor = Color.Transparent,
-                dragHandle = null,
             ) {
                 ExpenseFormSheet(
                     screenModel = formModel,
